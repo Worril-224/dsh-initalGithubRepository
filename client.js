@@ -20,6 +20,24 @@ window.__ModuleLoader__.load({
     const API = '/api/dsh-git-auto-commit'
     const POLL_MS = 4000
     const modalStack = []
+    const AUTO_HIDE_KEY = 'dsh-git-auto-commit.hide-after-commit'
+
+    function readAutoHide() {
+      try {
+        const stored = window.localStorage.getItem(AUTO_HIDE_KEY)
+        return stored === null ? true : stored !== 'false'
+      } catch {
+        return true
+      }
+    }
+
+    function writeAutoHide(value) {
+      try {
+        window.localStorage.setItem(AUTO_HIDE_KEY, value ? 'true' : 'false')
+      } catch {
+        /* localStorage is best effort */
+      }
+    }
 
     /* ------------------------------------------------------------ */
     /* dictionaries                                                 */
@@ -37,6 +55,7 @@ window.__ModuleLoader__.load({
       'session.notConfigured': '尚未配置',
       'session.inheritedHint': '当前配置复制自工作区默认；在这里修改会保存为会话独立配置。',
       'session.pending': '有提交等待确认',
+      'session.background': '正在后台提交',
       'session.dialogTitle': '会话 Git 自动提交',
       'session.dialogSub': '每轮对话结束后，把本会话工作区的代码提交并推送到指定仓库。',
       'session.enabled': '启用此会话的自动提交',
@@ -122,7 +141,10 @@ window.__ModuleLoader__.load({
       'confirm.commit': '提交并推送',
       'confirm.skip': '跳过本次',
       'confirm.skipHint': '跳过不会丢弃改动；它们会保留在工作区。',
+      'confirm.autoHide': '提交后隐藏窗口，后台完成',
+      'confirm.hide': '隐藏窗口',
       'confirm.working': '正在提交…',
+      'confirm.workingHint': '提交和推送会在后台继续。隐藏本窗口不影响你继续使用 DSH，完成后右下角会提示结果。',
       'confirm.moreFiles': '还有 {n} 个文件未列出',
       'confirm.emptyMessage': 'Commit 信息不能为空。',
       'toast.pushed': '已提交并推送到 {repo}',
@@ -185,6 +207,7 @@ window.__ModuleLoader__.load({
       'session.notConfigured': 'Not configured',
       'session.inheritedHint': 'This configuration was copied from the workspace default; editing it here saves a session-specific override.',
       'session.pending': 'A commit is waiting for confirmation',
+      'session.background': 'Committing in background',
       'session.dialogTitle': 'Session git auto-commit',
       'session.dialogSub': 'After each turn, commit and push this session workspace to the configured repository.',
       'session.enabled': 'Enable auto-commit for this session',
@@ -270,7 +293,10 @@ window.__ModuleLoader__.load({
       'confirm.commit': 'Commit and push',
       'confirm.skip': 'Skip this commit',
       'confirm.skipHint': 'Skipping keeps the changes in the workspace; nothing is discarded.',
+      'confirm.autoHide': 'Hide after committing (background)',
+      'confirm.hide': 'Hide window',
       'confirm.working': 'Committing…',
+      'confirm.workingHint': 'Commit and push continue in the background. Hiding this window does not stop them; the result appears in the lower-right corner when finished.',
       'confirm.moreFiles': '{n} more files not listed',
       'confirm.emptyMessage': 'The commit message cannot be empty.',
       'toast.pushed': 'Committed and pushed to {repo}',
@@ -465,6 +491,7 @@ window.__ModuleLoader__.load({
         sessionErrors: {},
         dialog: null,
         workspaceDialog: null,
+        hiddenPending: [],
         aiCatalog: {
           loading: false,
           loaded: false,
@@ -505,7 +532,18 @@ window.__ModuleLoader__.load({
           try {
             const data = await apiCall('state', {})
             if (ticket !== generation) return
-            set({ loaded: true, loading: false, error: null, state: data })
+            const pendingIds = new Set(
+              (Array.isArray(data.pending) ? data.pending : [])
+                .map((item) => (item && typeof item.id === 'string' ? item.id : null))
+                .filter((id) => id !== null),
+            )
+            set({
+              loaded: true,
+              loading: false,
+              error: null,
+              state: data,
+              hiddenPending: snapshot.hiddenPending.filter((id) => pendingIds.has(id)),
+            })
           } catch (error) {
             if (ticket !== generation) return
             set({ loading: false, error: error && error.message ? error.message : String(error) })
@@ -652,6 +690,17 @@ window.__ModuleLoader__.load({
         return data
       }
 
+      function hidePending(pendingId) {
+        if (typeof pendingId !== 'string' || pendingId === '') return
+        if (snapshot.hiddenPending.includes(pendingId)) return
+        set({ hiddenPending: [...snapshot.hiddenPending, pendingId] })
+      }
+
+      function showPending(pendingId) {
+        if (!snapshot.hiddenPending.includes(pendingId)) return
+        set({ hiddenPending: snapshot.hiddenPending.filter((id) => id !== pendingId) })
+      }
+
       function openSessionDialog(sessionId, displayTitle) {
         set({ dialog: { sessionId, displayTitle: displayTitle || '' } })
         void ensureSession(sessionId)
@@ -680,7 +729,7 @@ window.__ModuleLoader__.load({
         return snapshot
       }
 
-      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, localeId, decide, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
+      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
     }
 
     function useStore(store) {
@@ -1829,11 +1878,13 @@ window.__ModuleLoader__.load({
       const inline = snap.state && snap.state.sessions ? snap.state.sessions[sessionId] : undefined
       const config = snap.sessionConfigs[sessionId] || inline
       const enabled = Boolean(config && config.enabled)
-      const pending = snap.state && Array.isArray(snap.state.pending)
-        ? snap.state.pending.some((item) => item.sessionId === sessionId)
-        : false
+      const pendingEntry = snap.state && Array.isArray(snap.state.pending)
+        ? snap.state.pending.find((item) => item.sessionId === sessionId)
+        : undefined
+      const pending = pendingEntry !== undefined
       if (!enabled && !pending) return null
-      const label = pending ? t('session.pending') : t('session.on')
+      const background = pending && Array.isArray(snap.hiddenPending) && snap.hiddenPending.includes(pendingEntry.id)
+      const label = background ? t('session.background') : pending ? t('session.pending') : t('session.on')
       return h('span', {
         className: 'dsh-git-trailing',
         role: 'img',
@@ -1877,6 +1928,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [submitted, setSubmitted] = useState(false)
       const [error, setError] = useState(null)
+      const [autoHide, setAutoHide] = useState(readAutoHide)
       const textareaRef = useRef(null)
       const focusedId = useRef(null)
 
@@ -1896,14 +1948,21 @@ window.__ModuleLoader__.load({
       }, [pendingId, pending])
 
       if (!pending) return null
+      if (Array.isArray(snap.hiddenPending) && snap.hiddenPending.includes(pending.id)) return null
       const title = pending.sessionTitle && pending.sessionTitle !== '' ? pending.sessionTitle : t('session.untitled')
       const files = Array.isArray(pending.files) ? pending.files : []
+      const hideWindow = () => {
+        store.hidePending(pending.id)
+      }
       const commit = async () => {
         setError(null)
         if (message.trim() === '') {
           setError(t('confirm.emptyMessage'))
           return
         }
+        // Hide first so the network round-trip never blocks the Harness UI.
+        const hideOnCommit = autoHide
+        if (hideOnCommit) store.hidePending(pending.id)
         setBusy(true)
         try {
           const data = await store.decide(pending.id, 'commit', message)
@@ -1915,6 +1974,9 @@ window.__ModuleLoader__.load({
           }
         } catch (submitError) {
           setError(submitError && submitError.message ? submitError.message : String(submitError))
+          // A transport failure produced no Host result, so bring the window
+          // back if the proposal is still available.
+          if (hideOnCommit) store.showPending(pending.id)
         } finally {
           setBusy(false)
         }
@@ -1935,6 +1997,8 @@ window.__ModuleLoader__.load({
         title: t('confirm.title'),
         subtitle: t('confirm.sub'),
         wide: true,
+        onClose: busy || submitted ? hideWindow : undefined,
+        closeLabel: t('confirm.hide'),
         children: h(React.Fragment, null,
           h('div', { className: 'dsh-git-kv' },
             h('div', { className: 'dsh-git-k' }, t('confirm.session')),
@@ -1967,9 +2031,24 @@ window.__ModuleLoader__.load({
         ),
         footer: h(React.Fragment, null,
           h('div', { className: 'dsh-git-actions-left' },
-            h('span', { className: 'dsh-git-hint' }, t('confirm.skipHint')),
+            busy
+              ? h('span', { className: 'dsh-git-hint', style: { maxWidth: 380, lineHeight: 1.45 } }, t('confirm.workingHint'))
+              : h('label', { className: 'dsh-git-checkrow' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: autoHide,
+                  disabled: busy || submitted,
+                  onChange: (event) => {
+                    const value = event.target.checked
+                    setAutoHide(value)
+                    writeAutoHide(value)
+                  },
+                }),
+                h('span', null, t('confirm.autoHide')),
+              ),
           ),
           h('button', { type: 'button', className: 'dsh-git-btn', disabled: busy || submitted, onClick: skip }, t('confirm.skip')),
+          busy || submitted ? h('button', { type: 'button', className: 'dsh-git-btn', onClick: hideWindow }, t('confirm.hide')) : null,
           h('button', { type: 'button', className: 'dsh-git-btn dsh-git-btn-primary', disabled: busy || submitted, onClick: commit },
             busy ? t('confirm.working') : t('confirm.commit')),
         ),

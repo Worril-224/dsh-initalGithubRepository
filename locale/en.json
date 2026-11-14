@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Git auto-commit",
-    "description": "Commit and push each turn's code changes to a per-session or per-workspace repository, with token-derived GitHub prefixes, missing-repository creation, AI project descriptions, AI commit messages, optional confirmation, and automatic recovery from a diverged remote.",
+    "description": "Commit and push each turn's code changes to a per-session or per-workspace repository, with token-derived GitHub prefixes, missing-repository creation, AI project descriptions, AI commit messages, optional confirmation with background execution, and automatic recovery from a diverged remote.",
     "detail": "docs/DETAIL.md"
   },
   "session": {

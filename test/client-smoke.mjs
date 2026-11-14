@@ -94,9 +94,13 @@ assert.deepEqual(plugin.inject, ['slots', 'locale', 'contextMenus'])
 const registrations = []
 const menuContributions = []
 const disposers = []
+let localeTables = null
 const ctx = {
   locale: {
-    register() { return () => {} },
+    register(namespace, tables) {
+      localeTables = tables
+      return () => {}
+    },
     bind() { return (key) => key },
   },
   effect(callback) {
@@ -134,6 +138,14 @@ assert.equal(byName.get('sidebar.session.action').id, 'git-auto-commit-settings'
 assert.equal(byName.get('shell.overlay').id, 'git-auto-commit-overlay')
 assert.equal(byName.get('contextMenu.icon').key, 'workspace.git')
 assert.ok(styleElements.length >= 1, 'plugin stylesheet inserted')
+
+assert.ok(localeTables && localeTables.zh && localeTables.en, 'locale tables are registered')
+for (const [locale, table] of Object.entries(localeTables)) {
+  for (const key of ['confirm.autoHide', 'confirm.hide', 'confirm.workingHint', 'session.background']) {
+    assert.equal(typeof table[key], 'string', `${locale} has ${key}`)
+    assert.ok(table[key].length > 0, `${locale} ${key} is not empty`)
+  }
+}
 
 for (const dispose of disposers.reverse()) {
   try { dispose() } catch { /* best effort */ }

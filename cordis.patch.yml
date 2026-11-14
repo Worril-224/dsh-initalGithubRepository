@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-git-auto-commit
+      name: '@local/dsh-git-auto-commit'

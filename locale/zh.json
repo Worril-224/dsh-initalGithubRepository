@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "Git 自动提交",
+    "description": "每轮对话结束后把代码提交并推送到该会话或该工作区指定的仓库；支持从 Token 自动识别 GitHub 仓库前缀、短仓库名、缺失仓库创建、AI 生成项目描述与 commit 信息，以及提交前确认。",
+    "detail": "docs/DETAIL.md"
+  },
+  "session": {
+    "actionTitle": "配置此会话的 Git 自动提交"
+  }
+}

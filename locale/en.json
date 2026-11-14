@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "Git auto-commit",
+    "description": "Commit and push each turn's code changes to a per-session or per-workspace repository, with token-derived GitHub prefixes, missing-repository creation, AI-written project descriptions, AI commit messages, and optional confirmation.",
+    "detail": "docs/DETAIL.md"
+  },
+  "session": {
+    "actionTitle": "Configure git auto-commit for this session"
+  }
+}

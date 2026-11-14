@@ -126,6 +126,7 @@ window.__ModuleLoader__.load({
       'confirm.moreFiles': '还有 {n} 个文件未列出',
       'confirm.emptyMessage': 'Commit 信息不能为空。',
       'toast.pushed': '已提交并推送到 {repo}',
+      'toast.pushedMerged': '已合并远程历史并推送到 {repo}',
       'toast.committed': '已提交（推送失败，提交保留在本地）',
       'toast.commitFailed': '提交失败',
       'toast.pushFailedTitle': '已提交，但推送失败',
@@ -273,6 +274,7 @@ window.__ModuleLoader__.load({
       'confirm.moreFiles': '{n} more files not listed',
       'confirm.emptyMessage': 'The commit message cannot be empty.',
       'toast.pushed': 'Committed and pushed to {repo}',
+      'toast.pushedMerged': 'Merged remote history and pushed to {repo}',
       'toast.committed': 'Committed (push failed; the commit is kept locally)',
       'toast.commitFailed': 'Commit failed',
       'toast.pushFailedTitle': 'Committed, but push failed',
@@ -645,7 +647,7 @@ window.__ModuleLoader__.load({
       async function decide(pendingId, action, message) {
         // Commit + push can wait on git's network timeout, so this route gets a
         // longer browser deadline than ordinary state reads.
-        const data = await apiCall('pending', { id: pendingId, action, message }, 240000)
+        const data = await apiCall('pending', { id: pendingId, action, message }, 600000)
         void refresh()
         return data
       }
@@ -1983,7 +1985,7 @@ window.__ModuleLoader__.load({
       const recovery = result.recovery ? String(result.recovery) : ''
       const detail = [error, recovery].filter(Boolean).join('\n')
       switch (result.status) {
-        case 'pushed': return { tone: 'success', title: t('toast.pushed', { repo: repoLabel(result.repository) }) }
+        case 'pushed': return { tone: 'success', title: result.mergedRemote ? t('toast.pushedMerged', { repo: repoLabel(result.repository) }) : t('toast.pushed', { repo: repoLabel(result.repository) }) }
         case 'committed': return { tone: 'warn', title: t('toast.committed') }
         case 'push-failed': return { tone: 'warn', title: t('toast.pushFailedTitle'), detail }
         case 'commit-failed': return { tone: 'error', title: t('toast.commitFailed'), detail }

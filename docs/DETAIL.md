@@ -31,6 +31,7 @@ Commit and push a session's code changes after every completed turn, with a comm
 3. It ensures the session workspace is a git repository, stages all changes (`git add -A`), and asks the model for a message.
 4. It commits with the configured name/email, then pushes `HEAD` to the configured branch through the repository URL or local path. The remote is also registered locally as `dsh-auto-commit`; an existing `origin` is never overwritten.
 5. If pushing fails, the commit stays local and the notice shows the git error.
+6. If the remote rejects the push because it has newer history (`fetch first` / non-fast-forward), the plugin fetches the configured branch, merges it with `--allow-unrelated-histories`, and retries the push once. A merge conflict aborts the merge and keeps the local commit, with a message asking for manual resolution.
 
 ## AI project descriptions
 
@@ -71,6 +72,7 @@ A workspace default is a **template**, not a live link:
 - The GitHub API calls require network access to `api.github.com`; when it is unavailable, token detection and repository creation fail, and repository checks degrade to a save-with-warning.
 - AI descriptions need a reachable model route. If the selected provider/model is unavailable, the generate button shows the error; the manual description field always remains usable. The AI prompt includes project metadata, README text, and a few source samples, so avoid putting secrets in files that should not be sent to the model.
 - A private repository that the saved token cannot see is reported as missing by GitHub. Save anyway, or use a token with access to that repository or organization.
+- Automatic recovery from a diverged remote creates a merge commit. If the remote and local trees conflict, the merge is aborted and the commit remains local; resolve the conflict manually and push.
 - A short repository name (without `owner/`) is accepted only when the default prefix contains an account path, such as `https://github.com/<login>/`.
 - The token is sent to git through an HTTP authorization header rather than a token-bearing URL, so it does not appear in the repository configuration, pushed history, or most error output.
 - The top-of-sidebar Git settings button is shown while the sidebar is expanded; the per-Session configuration remains available from the Session's `…` menu when it is collapsed.

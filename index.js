@@ -191,6 +191,13 @@ function looksLikeRemote(repository) {
   return /^(?:https?|ssh|git|file):\/\//i.test(repository) || /^[^\s@]+@[^\s@]+:/.test(repository)
 }
 
+function isNonFastForwardPush(error) {
+  const text = String(error && error.message ? error.message : error || '').toLowerCase()
+  return text.includes('non-fast-forward')
+    || text.includes('fetch first')
+    || text.includes('updates were rejected')
+}
+
 function expandHome(value) {
   if (value === '~') return os.homedir()
   if (value.startsWith('~/')) return path.join(os.homedir(), value.slice(2))
@@ -1604,6 +1611,25 @@ export function apply(ctx) {
   /* commit and push                                                  */
   /* ---------------------------------------------------------------- */
 
+  async function reconcileRemote(cwd, remoteUrl, branch, token, authorArgs) {
+    const env = pushEnvironment(remoteUrl, token)
+    await runGit(['fetch', remoteUrl, branch], cwd, env)
+    try {
+      await runGit([
+        ...authorArgs,
+        'merge',
+        '--no-edit',
+        '--allow-unrelated-histories',
+        '-m', `merge: reconcile remote ${branch} before push`,
+        'FETCH_HEAD',
+      ], cwd)
+    } catch (error) {
+      try { await runGit(['merge', '--abort'], cwd) } catch { /* best effort */ }
+      throw error
+    }
+    return (await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim()
+  }
+
   async function commitAndPush(entry, message) {
     const cwd = entry.cwd
     const config = {
@@ -1649,20 +1675,37 @@ export function apply(ctx) {
       subject: split.subject,
       files: entry.fileCount,
     }
+    let rejected = false
     try {
       const remoteUrl = await prepareRemote(cwd, config.repository)
       const token = await readToken()
-      await runGit(['push', remoteUrl, `HEAD:${config.branch}`], cwd, pushEnvironment(remoteUrl, token))
+      const auth = pushEnvironment(remoteUrl, token)
+      try {
+        await runGit(['push', remoteUrl, `HEAD:${config.branch}`], cwd, auth)
+      } catch (pushError) {
+        if (!isNonFastForwardPush(pushError)) throw pushError
+        rejected = true
+        const mergeCommit = await reconcileRemote(cwd, remoteUrl, config.branch, token, authorArgs)
+        await runGit(['push', remoteUrl, `HEAD:${config.branch}`], cwd, auth)
+        result.status = 'pushed'
+        result.pushed = true
+        result.mergedRemote = true
+        result.mergeCommit = mergeCommit
+        return result
+      }
       result.status = 'pushed'
       result.pushed = true
       return result
     } catch (pushError) {
+      const rejectedNow = rejected || isNonFastForwardPush(pushError)
       return {
         ...result,
         status: 'push-failed',
         pushed: false,
         error: pushError?.message || String(pushError),
-        recovery: `The commit ${hash.slice(0, 12)} is local. Fix the remote/token and run: git push <remote> HEAD:${config.branch}`,
+        recovery: rejectedNow
+          ? `The commit ${hash.slice(0, 12)} is local. The remote history diverged and the automatic merge could not complete. Resolve it manually (git pull --allow-unrelated-histories), then push.`
+          : `The commit ${hash.slice(0, 12)} is local. Fix the remote/token and run: git push <remote> HEAD:${config.branch}`,
       }
     }
   }

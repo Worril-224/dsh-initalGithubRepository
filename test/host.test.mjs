@@ -20,12 +20,22 @@ const home = path.join(root, 'home')
 const workspace = path.join(root, 'workspace')
 const workspace2 = path.join(root, 'workspace2')
 const remote = path.join(root, 'remote.git')
+const conflictRemote = path.join(root, 'conflict.git')
+const seed = path.join(root, 'seed')
 await fs.mkdir(workspace, { recursive: true })
 await fs.mkdir(workspace2, { recursive: true })
 await fs.mkdir(home, { recursive: true })
+await fs.mkdir(seed, { recursive: true })
 await fs.writeFile(path.join(workspace, 'app.js'), 'export const greeting = "hello"\n', 'utf8')
 await fs.writeFile(path.join(workspace2, 'app2.js'), 'export const second = true\n', 'utf8')
 await execFileAsync('git', ['init', '--bare', remote])
+await execFileAsync('git', ['init', '--bare', conflictRemote])
+await execFileAsync('git', ['init', '-b', 'main'], { cwd: seed })
+await fs.writeFile(path.join(seed, 'README.md'), '# Seed repository\n', 'utf8')
+await execFileAsync('git', ['add', '-A'], { cwd: seed })
+await execFileAsync('git', ['-c', 'user.name=Seed', '-c', 'user.email=seed@example.com', 'commit', '-m', 'Initial commit'], { cwd: seed })
+await execFileAsync('git', ['remote', 'add', 'origin', conflictRemote], { cwd: seed })
+await execFileAsync('git', ['push', 'origin', 'main'], { cwd: seed })
 
 process.env.DSH_HOME = home
 
@@ -554,6 +564,29 @@ await test('AI description falls back to the agent default model', async () => {
   assert.equal(described.ok, true)
   assert.equal(described.provider, 'mock')
   assert.equal(described.model, 'mock-model')
+})
+
+await test('a rejected non-fast-forward push merges the remote and retries', async () => {
+  const session = makeSession('session-merge', Date.now() + 12000, [])
+  const saved = await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: conflictRemote,
+    branch: 'main',
+  })
+  assert.equal(saved.ok, true)
+  await fs.writeFile(path.join(workspace, 'merge-test.txt'), 'merge test\n', 'utf8')
+  emit('session/event', session, { type: 'turn/end', data: { turn: 5, reason: { kind: 'completed' } } })
+  const result = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === 'session-merge' && item.status === 'pushed')
+  })
+  assert.equal(result.mergedRemote, true)
+  const { stdout: log } = await execFileAsync('git', ['--git-dir', conflictRemote, 'log', '--pretty=%s', 'main'], { cwd: workspace })
+  assert.match(log, /Initial commit/)
+  assert.match(log, /merge: reconcile remote main before push/)
+  const { stdout: files } = await execFileAsync('git', ['--git-dir', conflictRemote, 'ls-tree', '-r', '--name-only', 'main'], { cwd: workspace })
+  assert.match(files, /merge-test\.txt/)
 })
 
 await test('AI description cleanup strips markdown and caps the GitHub limit', () => {

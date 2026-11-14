@@ -97,6 +97,8 @@ const sessionRecords = []
 const workspaces = []
 let workspaceResolvePath = workspace
 let lastLlmOptions = null
+let readmeReply = '# Test project\n\n## Features\n\n- Greeting endpoint\n'
+let lastReadmePrompt = ''
 
 const ctx = {
   get(name) {
@@ -184,6 +186,13 @@ const services = {
     },
     async *stream(options) {
       lastLlmOptions = options
+      if (options.purpose === 'git-auto-commit-readme') {
+        lastReadmePrompt = options.messages[0].content[0].text
+        if (readmeReply === 'THROW') throw new Error('mock README failure')
+        yield { type: 'text-delta', text: readmeReply }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
       if (options.purpose === 'git-repo-description') {
         yield { type: 'text-delta', text: '一个用于测试 Git 自动提交插件的示例项目，包含工作区和会话配置。' }
         yield { type: 'finish', reason: { kind: 'stop' } }
@@ -221,11 +230,11 @@ async function waitFor(predicate, timeoutMs = 8000) {
   throw new Error('timed out waiting for condition')
 }
 
-function makeSession(id, createdAt, fileEvents = []) {
-  const header = { id, createdAt, cwd: workspace, version: 1, isSeeded: false }
+function makeSession(id, createdAt, fileEvents = [], cwd = workspace, workspaceIndex = 0) {
+  const header = { id, createdAt, cwd, version: 1, isSeeded: false }
   const record = { header, live: true, persisted: true }
   sessionRecords.push(header)
-  workspaces[0].sessionIds.push(id)
+  workspaces[workspaceIndex].sessionIds.push(id)
   const live = {
     id,
     header,
@@ -298,13 +307,16 @@ await test('global config saves identity, token, detected account and workspace 
     enabled: true,
     repository: remote,
     branch: 'main',
+    updateReadme: true,
   })
   assert.equal(workspaceSaved.ok, true)
   assert.equal(workspaceSaved.config.repository, remote)
+  assert.equal(workspaceSaved.config.updateReadme, true)
   const state = await call('/state', {})
   assert.equal(state.global.userName, 'Test User')
   assert.equal(state.workspaces[0].config.repository, remote)
   assert.equal(state.workspaces[0].config.enabled, true)
+  assert.equal(state.workspaces[0].config.updateReadme, true)
 })
 
 await test('workspace default only reaches a session created afterwards', async () => {
@@ -315,10 +327,12 @@ await test('workspace default only reaches a session created afterwards', async 
   assert.equal(fresh.ok, true)
   assert.equal(fresh.config.enabled, true)
   assert.equal(fresh.config.repository, remote)
+  assert.equal(fresh.config.updateReadme, true)
   assert.equal(fresh.config.source, 'workspace')
   const old = await call('/session-state', { sessionId: 'session-old' })
   assert.equal(old.config.enabled, false)
   assert.equal(old.config.repository, '')
+  assert.equal(old.config.updateReadme, false)
   assert.equal(old.config.source, 'none')
 })
 
@@ -328,10 +342,20 @@ await test('session override is saved and resolved first', async () => {
     enabled: true,
     repository: remote,
     branch: 'main',
+    updateReadme: true,
   })
   assert.equal(saved.ok, true)
   assert.equal(saved.config.enabled, true)
+  assert.equal(saved.config.updateReadme, true)
   assert.equal(saved.config.source, 'session')
+  const preserved = await call('/session', {
+    sessionId: 'session-old',
+    enabled: true,
+    repository: remote,
+    branch: 'main',
+  })
+  assert.equal(preserved.ok, true)
+  assert.equal(preserved.config.updateReadme, true)
 })
 
 await test('completed turn creates a confirmation proposal with the AI message', async () => {
@@ -417,6 +441,7 @@ await test('a newly created session snapshots the workspace default', async () =
   })
   assert.equal(state.sessions['session-created'].enabled, true)
   assert.equal(state.sessions['session-created'].repository, remote)
+  assert.equal(state.sessions['session-created'].updateReadme, true)
   assert.equal(state.sessions['session-created'].source, 'workspace')
 })
 
@@ -631,6 +656,142 @@ await test('an aborted turn is ignored', async () => {
   await new Promise((resolve) => setTimeout(resolve, 300))
   const after = await call('/state', {})
   assert.equal(after.lastResults.length, countBefore)
+})
+
+await test('README update uses the commit model and is committed with the change', async () => {
+  await call('/config', { global: { aiProvider: 'mock', aiModel: 'mock-model' } })
+  readmeReply = '# Test project\n\n## Features\n\n- Greeting endpoint\n'
+  const session = makeSession('session-readme', Date.now() + 20000, [])
+  session.requestHeader = () => ({ config: { provider: 'session-provider', model: 'session-model' } })
+  const saved = await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: remote,
+    branch: 'main',
+    updateReadme: true,
+  })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.config.updateReadme, true)
+  await fs.writeFile(path.join(workspace, 'readme-change.txt'), 'readme change\n', 'utf8')
+  emit('session/event', session, { type: 'turn/end', data: { turn: 6, reason: { kind: 'completed' } } })
+  const result = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === 'session-readme' && item.status === 'pushed')
+  })
+  assert.equal(result.readmeStatus, 'updated')
+  assert.equal(result.readmeFile, 'README.md')
+  const content = await fs.readFile(path.join(workspace, 'README.md'), 'utf8')
+  assert.equal(content, readmeReply)
+  assert.equal(lastLlmOptions.purpose, 'git-auto-commit-readme')
+  assert.equal(lastLlmOptions.provider, 'mock')
+  assert.equal(lastLlmOptions.model, 'mock-model')
+  assert.match(lastReadmePrompt, /readme-change\.txt/)
+  assert.match(lastReadmePrompt, /feat\(core\): add greeting endpoint/)
+  const { stdout: tree } = await execFileAsync('git', ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'], { cwd: workspace })
+  assert.match(tree, /README\.md/)
+  assert.match(tree, /readme-change\.txt/)
+})
+
+await test('README update is skipped when the model returns NO_CHANGE', async () => {
+  readmeReply = 'NO_CHANGE'
+  const session = makeSession('session-readme-nochange', Date.now() + 21000, [])
+  await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: remote,
+    branch: 'main',
+    updateReadme: true,
+  })
+  await fs.writeFile(path.join(workspace, 'nochange.txt'), 'no change needed\n', 'utf8')
+  emit('session/event', session, { type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
+  const result = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === 'session-readme-nochange' && item.status === 'pushed')
+  })
+  assert.equal(result.readmeStatus, 'unchanged')
+  const content = await fs.readFile(path.join(workspace, 'README.md'), 'utf8')
+  assert.match(content, /Greeting endpoint/)
+  const { stdout: tree } = await execFileAsync('git', ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'], { cwd: workspace })
+  assert.match(tree, /nochange\.txt/)
+})
+
+await test('a README update failure does not block the commit', async () => {
+  readmeReply = 'THROW'
+  const session = makeSession('session-readme-fail', Date.now() + 22000, [])
+  await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: remote,
+    branch: 'main',
+    updateReadme: true,
+  })
+  await fs.writeFile(path.join(workspace, 'readme-failure.txt'), 'still committed\n', 'utf8')
+  emit('session/event', session, { type: 'turn/end', data: { turn: 8, reason: { kind: 'completed' } } })
+  const result = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === 'session-readme-fail' && item.status === 'pushed')
+  })
+  assert.equal(result.readmeStatus, 'failed')
+  assert.match(result.readmeWarning, /mock README failure/)
+  const content = await fs.readFile(path.join(workspace, 'README.md'), 'utf8')
+  assert.match(content, /Greeting endpoint/)
+  const { stdout: tree } = await execFileAsync('git', ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'], { cwd: workspace })
+  assert.match(tree, /readme-failure\.txt/)
+})
+
+await test('README update is skipped when no AI model is available', async () => {
+  const originalSelection = services.agentDefaultModel.currentSelection
+  services.agentDefaultModel.currentSelection = () => undefined
+  try {
+    await call('/config', { global: { aiProvider: '', aiModel: '' } })
+    const session = makeSession('session-readme-noai', Date.now() + 22500, [])
+    session.requestHeader = () => ({ config: {} })
+    await call('/session', {
+      sessionId: session.id,
+      enabled: true,
+      repository: remote,
+      branch: 'main',
+      updateReadme: true,
+    })
+    await fs.writeFile(path.join(workspace, 'noai.txt'), 'commit without AI\n', 'utf8')
+    emit('session/event', session, { type: 'turn/end', data: { turn: 9, reason: { kind: 'completed' } } })
+    const result = await waitFor(async () => {
+      const state = await call('/state', {})
+      return state.lastResults.find((item) => item.sessionId === 'session-readme-noai' && item.status === 'pushed')
+    })
+    assert.equal(result.readmeStatus, 'skipped')
+    assert.match(result.readmeWarning, /No AI model is configured/)
+    const { stdout: tree } = await execFileAsync('git', ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'], { cwd: workspace })
+    assert.match(tree, /noai\.txt/)
+  } finally {
+    services.agentDefaultModel.currentSelection = originalSelection
+    await call('/config', { global: { aiProvider: 'mock', aiModel: 'mock-model' } })
+  }
+})
+
+await test('a workspace README-only default reaches a new session but not an old one', async () => {
+  const saved = await call('/workspace', {
+    workspaceId: 'ws-2',
+    enabled: false,
+    repository: '',
+    branch: 'main',
+    updateReadme: true,
+  })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.config.updateReadme, true)
+  assert.equal(saved.config.repository, '')
+  const session = makeSession('session-ws2-readme', Date.now() + 23000, [], workspace2, 1)
+  const resolved = await call('/session-state', { sessionId: session.id })
+  assert.equal(resolved.config.updateReadme, true)
+  assert.equal(resolved.config.enabled, false)
+  assert.equal(resolved.config.repository, '')
+  assert.equal(resolved.config.source, 'workspace')
+})
+
+await test('README fence stripping keeps real content', () => {
+  assert.equal(__internals.stripMarkdownFence('```markdown\n# Hi\n```'), '# Hi')
+  assert.equal(__internals.stripMarkdownFence('NO_CHANGE'), 'NO_CHANGE')
+  assert.equal(__internals.stripMarkdownFence('  ```\n# Hi\n```  '), '# Hi')
 })
 
 /* ------------------------------------------------------------------ */

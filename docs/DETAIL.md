@@ -1,18 +1,18 @@
 # Git auto-commit
 
-Commit and push a session's code changes after every completed turn, with a commit message written by the model from that turn's own changes.
+Commit and push a session's code changes after every completed turn, with a commit message written by the model from that turn's own changes and an optional AI-maintained README.
 
 ## What it adds
 
-- **Session row button and menu entry** — every Session row in the left sidebar gets a small git button on hover, and the same action appears in the Session's `…` menu (useful on touch devices and when the sidebar is narrow). It opens the per-session settings: enable auto-commit, repository, and branch. The feature is **off by default**; nothing is committed until the session is configured and enabled. An enabled Session also shows a small branch marker at rest in the row's trailing area, and a warning-colored marker while a commit is waiting for confirmation.
-- **Workspace settings in the workspace `…` menu** — a workspace's default repository is configured from its own row menu (`Git auto-commit…`), with the same enabled / repository / branch controls. This DSH version exposes no workspace-row hover action seat, so the workspace `…` menu is the additive placement. A workspace default is a **template for sessions created afterwards**; editing it does not change existing sessions. It is off by default.
+- **Session row button and menu entry** — every Session row in the left sidebar gets a small git button on hover, and the same action appears in the Session's `…` menu (useful on touch devices and when the sidebar is narrow). It opens the per-session settings: enable auto-commit, repository, branch, and the **Also update README with AI** switch. The feature is **off by default**; nothing is committed until the session is configured and enabled. An enabled Session also shows a small branch marker at rest in the row's trailing area, and a warning-colored marker while a commit is waiting for confirmation.
+- **Workspace settings in the workspace `…` menu** — a workspace's default repository and README-update switch are configured from its own row menu (`Git auto-commit…`), with the same enabled / repository / branch / README controls. This DSH version exposes no workspace-row hover action seat, so the workspace `…` menu is the additive placement. A workspace default is a **template for sessions created afterwards**; editing it does not change existing sessions. It is off by default.
 - **Git settings entry at the top of the sidebar** — a button beside **New session** opens the global settings:
   - default commit user name and email;
   - a private GitHub token (used for HTTPS pushes, stored in the DSH credential store, never written to the repository);
   - whether to ask for confirmation before each commit;
   - the GitHub account detected from the token and the default GitHub repository prefix;
   - whether to ask to create a repository that GitHub cannot find;
-  - which AI provider and model generate project descriptions.
+  - the AI provider and model used for commit messages, README updates, and repository descriptions.
 - **Token-derived GitHub prefix** — when a token is saved, the plugin calls GitHub's `GET /user`, stores the login, and sets the default prefix to `https://github.com/<login>/`. The prefix is editable. Repository fields accept:
   - a short name (`my-repo`) — appended to the prefix;
   - `owner/repo` — resolved against `github.com`;
@@ -22,26 +22,34 @@ Commit and push a session's code changes after every completed turn, with a comm
 - **AI project description** — the create-repository form has an **AI generate** button next to Description. It reads the project's metadata (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, and similar), README, file names, and a few source samples, then asks the AI configured in Git settings for a one-to-two-sentence GitHub description (at most 350 characters). The result fills the editable description field; the user can change it before creating the repository.
 - **Independent confirmation window** — when confirmation is on, a modal opens after a turn. It shows the repository, branch, and the **uncommitted workspace changes**, and a freely editable commit message. Choose **Commit and push** to use that message, or **Skip this commit** to leave the working tree untouched. With **提交后隐藏窗口，后台完成** enabled (the default, remembered in the browser), confirming hides the window immediately and the commit/push continues in the background, so you can keep working in DSH; the result arrives as a notice. While a commit is running, the footer also shows **隐藏窗口**, and the window's close button or Escape hides it without cancelling. The window traps focus, focuses the message field, and does not dismiss on Escape before a decision is made; form dialogs keep unsaved edits when the backdrop or Escape is used.
 - **AI commit messages** — the message is generated from the turn's user request, the agent's summary, the tool-touched files, and the git diff. It follows Conventional Commits (`feat(scope): subject`, then an optional body). If the model is unavailable, a deterministic `chore:` fallback is used.
-- **Notices** — successful pushes, local-only commits, and failures are shown as a short notice.
+- **AI README updates** — independently switchable per session and per workspace (the workspace switch is a template for new sessions). Before committing, the plugin asks the same model that wrote the commit message to update the project README from the current README, commit message, changed files, and diff. It preserves the existing structure and language, returns the complete document, or answers `NO_CHANGE` when nothing needs updating. A root README (`README.md`, `README`, `.rst`, or similar) is updated; `README.md` is created if none exists. The updated README is committed together with the code. A model failure or an unhelpful/short rewrite is reported but never blocks the code commit.
+- **Notices** — successful pushes, local-only commits, failures, and README update results are shown as a short notice.
 
 ## How a commit runs
 
 1. A turn ends with the `completed` reason.
 2. The plugin resolves the session repository (session override first, then the workspace default copied when the session was created) and expands a short name with the current GitHub prefix.
-3. It ensures the session workspace is a git repository, stages all changes (`git add -A`), and asks the model for a message.
-4. It commits with the configured name/email, then pushes `HEAD` to the configured branch through the repository URL or local path. The remote is also registered locally as `dsh-auto-commit`; an existing `origin` is never overwritten.
-5. If pushing fails, the commit stays local and the notice shows the git error.
-6. If the remote rejects the push because it has newer history (`fetch first` / non-fast-forward), the plugin fetches the configured branch, merges it with `--allow-unrelated-histories`, and retries the push once. A merge conflict aborts the merge and keeps the local commit, with a message asking for manual resolution.
+3. It ensures the session workspace is a git repository and asks the model for a commit message.
+4. If the session (or its workspace template) enables README updates, the same model updates the root README before anything is staged.
+5. It stages all changes (`git add -A`) and commits with the configured name/email, then pushes `HEAD` to the configured branch through the repository URL or local path. The remote is also registered locally as `dsh-auto-commit`; an existing `origin` is never overwritten.
+6. If pushing fails, the commit stays local and the notice shows the git error.
+7. If the remote rejects the push because it has newer history (`fetch first` / non-fast-forward), the plugin fetches the configured branch, merges it with `--allow-unrelated-histories`, and retries the push once. A merge conflict aborts the merge and keeps the local commit, with a message asking for manual resolution.
 
 ## Background commits
 
 After you confirm, the confirmation window can disappear while the Host keeps committing and pushing. The Session's sidebar marker reads **Committing in background** until the operation settles; success, local-only commits, and failures appear as the usual short notices. If the browser request itself fails before the Host records a result, the window reopens with the error so the proposal is not lost. The **hide after committing** choice is stored in the browser and defaults to on.
 
-## AI project descriptions
+## AI model, README updates, and project descriptions
 
-Choose the provider and model in **Git settings → AI project description**. The selector loads the providers and models advertised by the running Harness, and shows the current agent default model as the fallback when no explicit selection is stored. The AI button is available in the create-repository form; it sends the session or workspace id so the Host can read the correct project directory.
+Choose the provider and model in **Git settings → AI model**. When a model is selected there, it is used for **commit messages, README updates, and new-repository descriptions**. When it is left empty, commit messages and README updates use the session's active model (or the agent default model as a fallback), and repository descriptions use the agent default model.
 
-The Host collects `package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod` and similar metadata, the README, top-level and conventional source-directory file names, and up to four small source samples. It then asks the selected model for a concise description in the active UI language. If no explicit AI is configured, the agent default model is used. A model failure leaves the description unchanged and shows the error; the user can retry or type a description manually.
+The README-update switch is available in every Session dialog and in each workspace's `Git auto-commit…` dialog. The workspace switch is copied to sessions created afterwards, like the workspace repository; existing sessions are not changed. A session switch takes effect only when that session has auto-commit enabled and a repository.
+
+Before staging, the Host reads the root README (`README.md`, `README`, `readme.md`, `README.markdown`, or `README.rst`), the commit message, the turn's request and summary, the changed-file list, the diff excerpt, and project metadata. It asks the model for a complete updated README (or `NO_CHANGE`). The prompt requires preserving the README's language, structure, links, commands, and tone; only affected sections should change. A missing README is created as `README.md`. The update is written atomically and included in the same commit.
+
+Safety behavior: a README longer than 12,000 characters is left untouched; a long README replaced by a much shorter response is rejected; an empty response, a model error, or a missing AI route is reported as a warning while the code commit continues. The warning and the updated file name appear in the result notice.
+
+The create-repository form's **AI generate** button uses the same setting. It sends the session or workspace id so the Host reads the correct project directory. The selector loads the providers and models advertised by the running Harness. A model failure leaves the description unchanged and shows the error; the user can retry or type a description manually.
 
 ## GitHub identity and missing repositories
 
@@ -55,14 +63,15 @@ The Host collects `package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod` and simi
 
 A workspace default is a **template**, not a live link:
 
-- a session created after the workspace default was saved receives a copy of it;
+- a session created after the workspace default was saved receives a copy of it, including the README-update switch;
+- a workspace config may contain only the README switch, with auto-commit off and no repository; it is kept so new sessions can inherit the switch;
 - changing the workspace default later does **not** change any existing session;
 - sessions that existed before the workspace default was saved stay off unless you configure them individually;
 - session settings always win.
 
 ## Configuration and storage
 
-- Global, per-session, and per-workspace settings live in `$DSH_HOME/git-auto-commit/state.json`.
+- Global, per-session, and per-workspace settings live in `$DSH_HOME/git-auto-commit/state.json`. Session and workspace records include the README-update switch.
 - The GitHub token lives in the DSH credential store under the `dsh-git-auto-commit/github-token` record. It is only read when pushing, checking a repository, creating a repository, or detecting the account.
 - The workspace is initialized as a git repository on first use if it is not already one. Existing parent repositories are not reused: the repository is created at the session working directory.
 
@@ -75,6 +84,10 @@ A workspace default is a **template**, not a live link:
 - This plugin commits the whole working tree, not only the files touched in the turn, so uncommitted changes from earlier turns are included in the next commit. The confirmation window labels this explicitly.
 - The GitHub API calls require network access to `api.github.com`; when it is unavailable, token detection and repository creation fail, and repository checks degrade to a save-with-warning.
 - AI descriptions need a reachable model route. If the selected provider/model is unavailable, the generate button shows the error; the manual description field always remains usable. The AI prompt includes project metadata, README text, and a few source samples, so avoid putting secrets in files that should not be sent to the model.
+- README updates rewrite the complete root README; nested READMEs and documentation sites are not touched. The model receives the README, commit message, changed-file list, and a diff excerpt, so the same caution about secrets applies.
+- A README longer than 12,000 characters is skipped to avoid a partial rewrite. A rewrite that would shrink a long README below roughly 40% of its original length is rejected and the original is kept. Both cases are reported in the notice, and the code commit still proceeds.
+- The README update runs after you confirm (or automatically when confirmation is off), so it is not part of the pre-commit file list in the confirmation window. That window shows a hint when the switch is on.
+- If the AI model is unavailable or not configured, the code commit still proceeds without a README update; the result notice reports the reason.
 - A private repository that the saved token cannot see is reported as missing by GitHub. Save anyway, or use a token with access to that repository or organization.
 - Automatic recovery from a diverged remote creates a merge commit. If the remote and local trees conflict, the merge is aborted and the commit remains local; resolve the conflict manually and push.
 - A short repository name (without `owner/`) is accepted only when the default prefix contains an account path, such as `https://github.com/<login>/`.

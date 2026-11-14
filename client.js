@@ -59,6 +59,8 @@ window.__ModuleLoader__.load({
       'session.dialogTitle': '会话 Git 自动提交',
       'session.dialogSub': '每轮对话结束后，把本会话工作区的代码提交并推送到指定仓库。',
       'session.enabled': '启用此会话的自动提交',
+      'session.updateReadme': '同时由 AI 更新 README',
+      'session.updateReadmeHint': '每轮提交前，用与 Commit 信息相同的 AI 模型更新项目 README；没有 README 时会创建一个。',
       'session.repository': '代码仓库',
       'session.repositoryPlaceholder': '短名、owner/repo、完整 URL 或本地路径',
       'session.repositoryHint': '短名会拼接 Git 设置中的默认仓库前缀；owner/repo 使用 github.com；完整 URL 原样保存。本地路径请使用绝对路径或以 ./、../、~/ 开头。',
@@ -72,6 +74,8 @@ window.__ModuleLoader__.load({
       'workspace.dialogTitle': '工作区 Git 自动提交',
       'workspace.dialogSub': '这里的仓库只作为模板，复制给此后在该工作区新建的会话；修改不会影响已有会话。',
       'workspace.enabled': '为此工作区的新会话启用自动提交',
+      'workspace.updateReadme': '为此工作区的新会话启用 README 更新',
+      'workspace.updateReadmeHint': '只复制给此后新建的会话；已有会话不受影响。需要同时开启该会话的自动提交才会生效。',
       'workspace.repository': '默认代码仓库',
       'workspace.branch': '默认分支',
       'workspace.save': '保存',
@@ -105,13 +109,13 @@ window.__ModuleLoader__.load({
       'settings.githubPrefix': 'GitHub 默认仓库前缀',
       'settings.githubPrefixHint': '输入短仓库名（如 my-repo）时会拼接为该前缀；输入 owner/repo 或完整 URL 时不使用此前缀。',
       'settings.githubUserError': '无法识别 GitHub 账号',
-      'settings.aiSection': 'AI 项目描述',
+      'settings.aiSection': 'AI 模型',
       'settings.aiProvider': 'AI 提供方',
       'settings.aiModel': 'AI 模型',
-      'settings.aiDefault': '默认（Agent 默认模型）',
+      'settings.aiDefault': '默认（会话模型或 Agent 默认模型）',
       'settings.aiModelDefault': '默认模型',
       'settings.aiModelPlaceholder': '请选择模型',
-      'settings.aiHint': '用于新建仓库时根据项目文件生成描述。留空则使用当前 Agent 的默认模型。',
+      'settings.aiHint': '用于生成 Commit 信息、README 更新和新建仓库的项目描述。留空则使用当前会话模型或 Agent 默认模型。',
       'settings.aiLoading': '正在加载模型…',
       'settings.aiLoadFailed': '无法加载模型：{error}',
       'settings.aiRefresh': '刷新模型',
@@ -136,6 +140,7 @@ window.__ModuleLoader__.load({
       'confirm.branch': '分支',
       'confirm.files': '工作区未提交改动（{n} 个文件）',
       'confirm.filesHint': '包含本轮之前尚未提交的改动；提交会暂存整个工作区。',
+      'confirm.readmeHint': '本次提交会先让 AI 更新 README（与 Commit 信息使用同一模型），再一起提交。',
       'confirm.message': 'Commit 信息',
       'confirm.messageHint': '第一行是标题，空一行后可以写正文。',
       'confirm.commit': '提交并推送',
@@ -150,6 +155,8 @@ window.__ModuleLoader__.load({
       'toast.pushed': '已提交并推送到 {repo}',
       'toast.pushedMerged': '已合并远程历史并推送到 {repo}',
       'toast.committed': '已提交（推送失败，提交保留在本地）',
+      'toast.readmeUpdated': 'README 已由 AI 更新：{file}',
+      'toast.readmeWarning': 'README 未更新：{reason}',
       'toast.commitFailed': '提交失败',
       'toast.pushFailedTitle': '已提交，但推送失败',
       'toast.pushFailed': '已提交，但推送失败：{error}',
@@ -211,6 +218,8 @@ window.__ModuleLoader__.load({
       'session.dialogTitle': 'Session git auto-commit',
       'session.dialogSub': 'After each turn, commit and push this session workspace to the configured repository.',
       'session.enabled': 'Enable auto-commit for this session',
+      'session.updateReadme': 'Also update README with AI',
+      'session.updateReadmeHint': 'Before each commit, update the project README with the same AI model used for the commit message. A README is created if none exists.',
       'session.repository': 'Repository',
       'session.repositoryPlaceholder': 'Short name, owner/repo, full URL, or local path',
       'session.repositoryHint': 'A short name uses the default repository prefix from Git settings; owner/repo uses github.com; full URLs are stored as-is. Prefix local paths with /, ./, ../, or ~.',
@@ -224,6 +233,8 @@ window.__ModuleLoader__.load({
       'workspace.dialogTitle': 'Workspace git auto-commit',
       'workspace.dialogSub': 'This repository is a template copied into sessions created in this workspace afterwards; editing it does not affect existing sessions.',
       'workspace.enabled': 'Enable auto-commit for new sessions in this workspace',
+      'workspace.updateReadme': 'Enable README updates for new sessions in this workspace',
+      'workspace.updateReadmeHint': 'Copied only to sessions created afterwards; existing sessions are unchanged. Takes effect only when the session also has auto-commit enabled.',
       'workspace.repository': 'Default repository',
       'workspace.branch': 'Default branch',
       'workspace.save': 'Save',
@@ -257,13 +268,13 @@ window.__ModuleLoader__.load({
       'settings.githubPrefix': 'Default GitHub repository prefix',
       'settings.githubPrefixHint': 'A short repository name (for example my-repo) is appended to this prefix. Use owner/repo or a full URL to bypass it.',
       'settings.githubUserError': 'Could not detect the GitHub account',
-      'settings.aiSection': 'AI project description',
+      'settings.aiSection': 'AI model',
       'settings.aiProvider': 'AI provider',
       'settings.aiModel': 'AI model',
-      'settings.aiDefault': 'Default (agent default model)',
+      'settings.aiDefault': 'Default (session model or agent default model)',
       'settings.aiModelDefault': 'Default model',
       'settings.aiModelPlaceholder': 'Choose a model',
-      'settings.aiHint': 'Used to generate a repository description from project files. Leave empty to use the current agent default model.',
+      'settings.aiHint': 'Used for commit messages, README updates, and new repository descriptions. Leave empty to use the current session model or the agent default model.',
       'settings.aiLoading': 'Loading models…',
       'settings.aiLoadFailed': 'Could not load models: {error}',
       'settings.aiRefresh': 'Refresh models',
@@ -288,6 +299,7 @@ window.__ModuleLoader__.load({
       'confirm.branch': 'Branch',
       'confirm.files': 'Uncommitted workspace changes ({n} files)',
       'confirm.filesHint': 'Includes changes left uncommitted by earlier turns; committing stages the whole workspace.',
+      'confirm.readmeHint': 'The AI will update the README first (same model as the commit message), then commit it together.',
       'confirm.message': 'Commit message',
       'confirm.messageHint': 'The first line is the subject; leave a blank line before the body.',
       'confirm.commit': 'Commit and push',
@@ -302,6 +314,8 @@ window.__ModuleLoader__.load({
       'toast.pushed': 'Committed and pushed to {repo}',
       'toast.pushedMerged': 'Merged remote history and pushed to {repo}',
       'toast.committed': 'Committed (push failed; the commit is kept locally)',
+      'toast.readmeUpdated': 'README updated by AI: {file}',
+      'toast.readmeWarning': 'README not updated: {reason}',
       'toast.commitFailed': 'Commit failed',
       'toast.pushFailedTitle': 'Committed, but push failed',
       'toast.pushFailed': 'Committed, but push failed: {error}',
@@ -915,6 +929,7 @@ window.__ModuleLoader__.load({
       const meta = snap.sessionMeta[sessionId]
       const defaultBranch = (snap.state && snap.state.global && snap.state.global.defaultBranch) || 'main'
       const [enabled, setEnabled] = useState(Boolean(config && config.enabled))
+      const [updateReadme, setUpdateReadme] = useState(Boolean(config && config.updateReadme))
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [seeded, setSeeded] = useState(Boolean(config))
@@ -928,6 +943,7 @@ window.__ModuleLoader__.load({
       const initial = useRef(config
         ? {
           enabled: Boolean(config.enabled),
+          updateReadme: Boolean(config.updateReadme),
           repository: config.repository || '',
           branch: config.branch || defaultBranch,
         }
@@ -941,10 +957,12 @@ window.__ModuleLoader__.load({
         if (config !== undefined && !seeded) {
           const values = {
             enabled: Boolean(config.enabled),
+            updateReadme: Boolean(config.updateReadme),
             repository: config.repository || '',
             branch: config.branch || defaultBranch,
           }
           setEnabled(values.enabled)
+          setUpdateReadme(values.updateReadme)
           setRepository(values.repository)
           setBranch(values.branch)
           initial.current = values
@@ -963,6 +981,7 @@ window.__ModuleLoader__.load({
       const ready = config !== undefined
       const dirty = ready && initial.current !== null && (
         enabled !== initial.current.enabled
+        || updateReadme !== initial.current.updateReadme
         || repository !== initial.current.repository
         || branch !== initial.current.branch
       )
@@ -998,6 +1017,7 @@ window.__ModuleLoader__.load({
         }
         void persist({
           enabled,
+          updateReadme,
           repository: repository.trim(),
           branch: branch.trim() || defaultBranch,
         }, false)
@@ -1070,6 +1090,13 @@ window.__ModuleLoader__.load({
                 spellCheck: false,
                 onChange: (event) => setBranch(event.target.value),
               })),
+              h('div', { className: 'dsh-git-switchrow' },
+                h('div', { className: 'dsh-git-switchtext' },
+                  h('div', { className: 'dsh-git-switchtitle' }, t('session.updateReadme')),
+                  h('div', { className: 'dsh-git-hint' }, t('session.updateReadmeHint')),
+                ),
+                h(Switch, { checked: updateReadme, onChange: setUpdateReadme, label: t('session.updateReadme') }),
+              ),
               workspace
                 ? h('div', { className: 'dsh-git-hint' }, t('session.workspaceHint', { name: workspace.title }))
                 : h('div', { className: 'dsh-git-hint' }, t('session.noWorkspace')),
@@ -1101,12 +1128,12 @@ window.__ModuleLoader__.load({
           onSaveAnyway: () => {
             const target = missingRepo
             setMissingRepo(null)
-            void persist({ enabled, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+            void persist({ enabled, updateReadme, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
           },
           onCreated: (repo) => {
             const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
             setMissingRepo(null)
-            void persist({ enabled, repository: url, branch: branch.trim() || defaultBranch }, true)
+            void persist({ enabled, updateReadme, repository: url, branch: branch.trim() || defaultBranch }, true)
           },
         })
         : null,
@@ -1630,6 +1657,7 @@ window.__ModuleLoader__.load({
       const config = workspace && workspace.config ? workspace.config : null
       const defaultBranch = snap.state && snap.state.global ? snap.state.global.defaultBranch || 'main' : 'main'
       const [enabled, setEnabled] = useState(Boolean(config && config.enabled))
+      const [updateReadme, setUpdateReadme] = useState(Boolean(config && config.updateReadme))
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [seeded, setSeeded] = useState(Boolean(config))
@@ -1643,6 +1671,7 @@ window.__ModuleLoader__.load({
       const initial = useRef(config
         ? {
           enabled: Boolean(config.enabled),
+          updateReadme: Boolean(config.updateReadme),
           repository: config.repository || '',
           branch: config.branch || defaultBranch,
         }
@@ -1656,10 +1685,12 @@ window.__ModuleLoader__.load({
         if (workspace && !seeded) {
           const values = {
             enabled: Boolean(config && config.enabled),
+            updateReadme: Boolean(config && config.updateReadme),
             repository: config && config.repository ? config.repository : '',
             branch: config && config.branch ? config.branch : defaultBranch,
           }
           setEnabled(values.enabled)
+          setUpdateReadme(values.updateReadme)
           setRepository(values.repository)
           setBranch(values.branch)
           initial.current = values
@@ -1678,6 +1709,7 @@ window.__ModuleLoader__.load({
       const loadError = !ready ? (snap.error || (snap.loaded ? t('workspace.notFound') : null)) : null
       const dirty = ready && initial.current !== null && (
         enabled !== initial.current.enabled
+        || updateReadme !== initial.current.updateReadme
         || repository !== initial.current.repository
         || branch !== initial.current.branch
       )
@@ -1715,6 +1747,7 @@ window.__ModuleLoader__.load({
         }
         void persist({
           enabled,
+          updateReadme,
           repository: repository.trim(),
           branch: branch.trim() || defaultBranch,
         }, false)
@@ -1777,6 +1810,13 @@ window.__ModuleLoader__.load({
                   spellCheck: false,
                   onChange: (event) => setBranch(event.target.value),
                 })),
+                h('div', { className: 'dsh-git-switchrow' },
+                  h('div', { className: 'dsh-git-switchtext' },
+                    h('div', { className: 'dsh-git-switchtitle' }, t('workspace.updateReadme')),
+                    h('div', { className: 'dsh-git-hint' }, t('workspace.updateReadmeHint')),
+                  ),
+                  h(Switch, { checked: updateReadme, onChange: setUpdateReadme, label: t('workspace.updateReadme') }),
+                ),
                 workspace ? h('div', { className: 'dsh-git-hint' }, workspace.path) : null,
                 h('div', { className: 'dsh-git-hint' }, t('workspace.dialogSub')),
                 warning ? h('div', { className: 'dsh-git-warn' }, warning) : null,
@@ -1804,12 +1844,12 @@ window.__ModuleLoader__.load({
             onSaveAnyway: () => {
               const target = missingRepo
               setMissingRepo(null)
-              void persist({ enabled, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+              void persist({ enabled, updateReadme, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
             },
             onCreated: (repo) => {
               const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
               setMissingRepo(null)
-              void persist({ enabled, repository: url, branch: branch.trim() || defaultBranch }, true)
+              void persist({ enabled, updateReadme, repository: url, branch: branch.trim() || defaultBranch }, true)
             },
           })
           : null,
@@ -2014,6 +2054,7 @@ window.__ModuleLoader__.load({
             (pending.fileCount || 0) > 40 ? h('div', null, t('confirm.moreFiles', { n: (pending.fileCount || 0) - 40 })) : null,
           ),
           h('div', { className: 'dsh-git-hint' }, t('confirm.filesHint')),
+          pending.updateReadme ? h('div', { className: 'dsh-git-hint', style: { marginTop: 4 } }, t('confirm.readmeHint')) : null,
           h('div', { style: { height: 14 } }),
           h(Field, {
             label: t('confirm.message'),
@@ -2062,10 +2103,13 @@ window.__ModuleLoader__.load({
     function toastText(result, t) {
       const error = result.error ? String(result.error) : ''
       const recovery = result.recovery ? String(result.recovery) : ''
-      const detail = [error, recovery].filter(Boolean).join('\n')
+      const readmeDetail = result.readmeStatus === 'updated'
+        ? t('toast.readmeUpdated', { file: result.readmeFile || 'README.md' })
+        : result.readmeWarning ? t('toast.readmeWarning', { reason: String(result.readmeWarning) }) : ''
+      const detail = [error, recovery, readmeDetail].filter(Boolean).join('\n')
       switch (result.status) {
-        case 'pushed': return { tone: 'success', title: result.mergedRemote ? t('toast.pushedMerged', { repo: repoLabel(result.repository) }) : t('toast.pushed', { repo: repoLabel(result.repository) }) }
-        case 'committed': return { tone: 'warn', title: t('toast.committed') }
+        case 'pushed': return { tone: 'success', title: result.mergedRemote ? t('toast.pushedMerged', { repo: repoLabel(result.repository) }) : t('toast.pushed', { repo: repoLabel(result.repository) }), detail }
+        case 'committed': return { tone: 'warn', title: t('toast.committed'), detail }
         case 'push-failed': return { tone: 'warn', title: t('toast.pushFailedTitle'), detail }
         case 'commit-failed': return { tone: 'error', title: t('toast.commitFailed'), detail }
         case 'cancelled': return { tone: 'warn', title: t('toast.cancelled') }

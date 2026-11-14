@@ -141,7 +141,17 @@ assert.ok(styleElements.length >= 1, 'plugin stylesheet inserted')
 
 assert.ok(localeTables && localeTables.zh && localeTables.en, 'locale tables are registered')
 for (const [locale, table] of Object.entries(localeTables)) {
-  for (const key of ['confirm.autoHide', 'confirm.hide', 'confirm.workingHint', 'session.background']) {
+  for (const key of [
+    'confirm.autoHide',
+    'confirm.hide',
+    'confirm.workingHint',
+    'confirm.readmeHint',
+    'session.background',
+    'session.updateReadme',
+    'workspace.updateReadme',
+    'toast.readmeUpdated',
+    'toast.readmeWarning',
+  ]) {
     assert.equal(typeof table[key], 'string', `${locale} has ${key}`)
     assert.ok(table[key].length > 0, `${locale} ${key} is not empty`)
   }

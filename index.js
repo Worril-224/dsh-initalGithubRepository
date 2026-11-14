@@ -33,6 +33,11 @@ const MAX_RESULTS = 40
 const MAX_DIFF_CHARS = 14000
 const GIT_TIMEOUT_MS = 180000
 const LLM_TIMEOUT_MS = 30000
+const README_LLM_TIMEOUT_MS = 45000
+const MAX_README_CHARS = 12000
+const MAX_README_OUTPUT_CHARS = 60000
+const README_CANDIDATES = ['README.md', 'readme.md', 'Readme.md', 'README.markdown', 'README', 'README.rst', 'readme.rst']
+const README_NAME_PATTERN = /^readme(?:\.(?:md|markdown|rst|txt))?$/i
 
 const DEFAULT_STATE = {
   version: 1,
@@ -71,6 +76,7 @@ function normalizeRepoConfig(raw) {
     enabled: value.enabled === true,
     repository: typeof value.repository === 'string' ? value.repository.trim() : '',
     branch: typeof value.branch === 'string' && value.branch.trim() !== '' ? value.branch.trim() : '',
+    updateReadme: value.updateReadme === true,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
   }
   if (value.source === 'workspace' || value.source === 'session') config.source = value.source
@@ -398,6 +404,46 @@ async function collectProjectProfile(cwd) {
     if (text !== '') profile.samples.push({ file, text })
   }
   return profile
+}
+
+async function readProjectReadme(cwd) {
+  for (const name of README_CANDIDATES) {
+    const file = path.join(cwd, name)
+    try {
+      const info = await fs.stat(file)
+      if (!info.isFile()) continue
+      if (info.size > MAX_README_CHARS * 8) return { name, file, content: null, existed: true }
+      const content = await fs.readFile(file, 'utf8')
+      return { name, file, content, existed: true }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  try {
+    const entries = await fs.readdir(cwd, { withFileTypes: true })
+    const match = entries
+      .filter((entry) => entry.isFile() && README_NAME_PATTERN.test(entry.name))
+      .sort((a, b) => a.name.localeCompare(b.name))[0]
+    if (match !== undefined) {
+      const file = path.join(cwd, match.name)
+      const info = await fs.stat(file)
+      if (info.size > MAX_README_CHARS * 8) return { name: match.name, file, content: null, existed: true }
+      const content = await fs.readFile(file, 'utf8')
+      return { name: match.name, file, content, existed: true }
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  return { name: 'README.md', file: path.join(cwd, 'README.md'), content: '', existed: false }
+}
+
+function stripMarkdownFence(raw) {
+  const text = String(raw || '').trim()
+  if (text.startsWith('```') && text.endsWith('```')) {
+    const firstBreak = text.indexOf('\n')
+    if (firstBreak !== -1) return text.slice(firstBreak + 1, -3).trim()
+  }
+  return text
 }
 
 function cleanAiDescription(raw) {
@@ -759,6 +805,7 @@ export function apply(ctx) {
       enabled: config?.enabled === true,
       repository: expandRepository(config?.repository || '', state.global.githubPrefix),
       branch: resolveBranch(config),
+      updateReadme: config?.updateReadme === true,
       source,
       workspaceId: workspace?.id,
       workspaceTitle: workspace?.title,
@@ -778,7 +825,7 @@ export function apply(ctx) {
     }
 
     const workspaceConfig = workspace === undefined ? undefined : state.workspaces[workspace.id]
-    if (workspaceConfig === undefined || workspaceConfig.repository === '') {
+    if (workspaceConfig === undefined || (workspaceConfig.repository === '' && workspaceConfig.updateReadme !== true)) {
       return resolvedSessionConfig(sessionId, undefined, workspace, 'none')
     }
 
@@ -792,6 +839,7 @@ export function apply(ctx) {
       enabled: workspaceConfig.enabled === true,
       repository: workspaceConfig.repository,
       branch: resolveBranch(workspaceConfig),
+      updateReadme: workspaceConfig.updateReadme === true,
       updatedAt: Date.now(),
       source: 'workspace',
     }
@@ -807,11 +855,12 @@ export function apply(ctx) {
     const workspace = await workspaceForSession(session.id, session.header.cwd)
     if (workspace === undefined) return
     const config = state.workspaces[workspace.id]
-    if (config === undefined || config.repository === '') return
+    if (config === undefined || (config.repository === '' && config.updateReadme !== true)) return
     state.sessions[session.id] = {
       enabled: config.enabled === true,
       repository: config.repository,
       branch: resolveBranch(config),
+      updateReadme: config.updateReadme === true,
       updatedAt: Date.now(),
       source: 'workspace',
     }
@@ -830,6 +879,7 @@ export function apply(ctx) {
       fileCount: entry.fileCount,
       stat: entry.stat,
       message: entry.message,
+      updateReadme: entry.updateReadme === true,
       createdAt: entry.createdAt,
       cwd: entry.cwd,
     }
@@ -919,6 +969,7 @@ export function apply(ctx) {
           enabled: config.enabled === true,
           repository: expandRepository(config.repository || '', state.global.githubPrefix),
           branch: resolveBranch(config),
+          updateReadme: config.updateReadme === true,
           source: config.source === 'workspace' ? 'workspace' : 'session',
         }
       }
@@ -1069,6 +1120,8 @@ export function apply(ctx) {
       }
       const repository = expandRepository(rawRepository, state.global.githubPrefix)
       const enabled = body.enabled === true
+      const previous = state.sessions[body.sessionId]
+      const updateReadme = typeof body.updateReadme === 'boolean' ? body.updateReadme : previous?.updateReadme === true
       const branch = typeof body.branch === 'string' ? body.branch.trim() : ''
       if (enabled && repository === '') return fail('REPOSITORY_REQUIRED', 'Set a repository before enabling auto-commit')
       if (branch !== '' && !validBranch(branch)) return fail('BRANCH_INVALID', `Invalid branch name: ${branch}`)
@@ -1078,6 +1131,7 @@ export function apply(ctx) {
         enabled,
         repository,
         branch: branch === '' ? state.global.defaultBranch : branch,
+        updateReadme,
         updatedAt: Date.now(),
         source: 'session',
       }
@@ -1112,10 +1166,12 @@ export function apply(ctx) {
       }
       const repository = expandRepository(rawRepository, state.global.githubPrefix)
       const enabled = body.enabled === true
+      const previous = state.workspaces[body.workspaceId]
+      const updateReadme = typeof body.updateReadme === 'boolean' ? body.updateReadme : previous?.updateReadme === true
       const branch = typeof body.branch === 'string' ? body.branch.trim() : ''
       if (enabled && repository === '') return fail('REPOSITORY_REQUIRED', 'A repository is required before enabling a workspace')
       if (branch !== '' && !validBranch(branch)) return fail('BRANCH_INVALID', `Invalid branch name: ${branch}`)
-      if (!enabled && repository === '') {
+      if (!enabled && repository === '' && !updateReadme) {
         delete state.workspaces[body.workspaceId]
         await persist()
         return ok({ config: null })
@@ -1126,6 +1182,7 @@ export function apply(ctx) {
         enabled,
         repository,
         branch: branch === '' ? state.global.defaultBranch : branch,
+        updateReadme,
         updatedAt: Date.now(),
       }
       state.workspaces[body.workspaceId] = config
@@ -1201,6 +1258,29 @@ export function apply(ctx) {
     const model = state.global.aiModel.trim()
     if (provider !== '') {
       return model === '' ? null : { provider, model, source: 'configured' }
+    }
+    try {
+      const selection = service('agentDefaultModel')?.currentSelection()
+      if (selection !== undefined && typeof selection.provider === 'string' && typeof selection.model === 'string') {
+        return { provider: selection.provider, model: selection.model, source: 'default' }
+      }
+    } catch {
+      // The default model service is optional in some profiles.
+    }
+    return null
+  }
+
+  function commitAiSelection(session) {
+    const provider = state.global.aiProvider.trim()
+    const model = state.global.aiModel.trim()
+    if (provider !== '' && model !== '') return { provider, model, source: 'configured' }
+    try {
+      const header = session.requestHeader()
+      if (typeof header?.config?.provider === 'string' && typeof header?.config?.model === 'string') {
+        return { provider: header.config.provider, model: header.config.model, source: 'session' }
+      }
+    } catch {
+      // Request headers are advisory here.
     }
     try {
       const selection = service('agentDefaultModel')?.currentSelection()
@@ -1443,7 +1523,8 @@ export function apply(ctx) {
     if (changes.files.length === 0) return
 
     const context = await collectTurnContext(session, turn, changes)
-    const message = await generateCommitMessage(session, context)
+    const ai = commitAiSelection(session)
+    const message = await generateCommitMessage(session, context, ai)
     const id = randomUUID()
     const entry = {
       id,
@@ -1457,6 +1538,9 @@ export function apply(ctx) {
       fileCount: changes.files.length,
       stat: changes.stat,
       message,
+      updateReadme: config.updateReadme === true,
+      ai,
+      turnContext: context,
       createdAt: Date.now(),
     }
 
@@ -1518,29 +1602,14 @@ export function apply(ctx) {
     }
   }
 
-  async function generateCommitMessage(session, context) {
+  async function generateCommitMessage(session, context, selection) {
     const fallback = fallbackCommitMessage(context)
     const llm = service('llm')
     if (llm === undefined || typeof llm.stream !== 'function') return fallback
-    let provider
-    let model
-    try {
-      const header = session.requestHeader()
-      provider = header?.config?.provider
-      model = header?.config?.model
-    } catch {
-      // Request headers are advisory here.
-    }
-    if (provider === undefined || model === undefined) {
-      try {
-        const selection = service('agentDefaultModel')?.currentSelection()
-        provider = provider || selection?.provider
-        model = model || selection?.model
-      } catch {
-        // No default model available.
-      }
-    }
-    if (typeof provider !== 'string' || typeof model !== 'string') return fallback
+    const ai = selection === undefined ? commitAiSelection(session) : selection
+    if (ai === null) return fallback
+    const provider = ai.provider
+    const model = ai.model
     const chinese = isCjkText(context.userRequest || context.assistantSummary)
     const language = chinese ? 'Chinese (简体中文)' : 'English'
     const system = [
@@ -1607,6 +1676,125 @@ export function apply(ctx) {
     return bullets.length === 0 ? subject : `${subject}\n\n${bullets.join('\n')}`
   }
 
+  function readmeFields(readme) {
+    if (readme === null || readme === undefined) return {}
+    return {
+      readmeStatus: readme.status,
+      ...(readme.file ? { readmeFile: readme.file } : {}),
+      ...(readme.warning ? { readmeWarning: readme.warning } : {}),
+    }
+  }
+
+  async function generateReadmeUpdate(entry, message) {
+    if (entry.ai === null || entry.ai === undefined) {
+      return { status: 'skipped', warning: 'No AI model is configured, so the README was not updated.' }
+    }
+    const llm = service('llm')
+    if (llm === undefined || typeof llm.stream !== 'function') {
+      return { status: 'skipped', warning: 'The AI service is unavailable, so the README was not updated.' }
+    }
+    let readme
+    try {
+      readme = await readProjectReadme(entry.cwd)
+    } catch (error) {
+      return { status: 'failed', warning: `Could not read the README: ${error?.message || String(error)}` }
+    }
+    if (readme.content === null) {
+      return { status: 'skipped', file: readme.name, warning: `The README is too large for an automatic update (limit ${MAX_README_CHARS} characters).` }
+    }
+    if (readme.content.length > MAX_README_CHARS) {
+      return { status: 'skipped', file: readme.name, warning: `The README is longer than ${MAX_README_CHARS} characters, so the automatic update was skipped.` }
+    }
+    const context = entry.turnContext || {}
+    const files = Array.isArray(context.files) ? context.files : (Array.isArray(entry.files) ? entry.files : [])
+    let profile = null
+    try {
+      profile = await collectProjectProfile(entry.cwd)
+    } catch {
+      profile = null
+    }
+    const readmeFormat = /\.rst$/i.test(readme.name) ? 'reStructuredText' : 'Markdown'
+    const languageSample = readme.existed ? readme.content : [context.userRequest || '', message].join('\n')
+    const language = isCjkText(languageSample) ? 'Chinese (简体中文)' : 'English'
+    const system = [
+      'You maintain the README of a software project.',
+      `Update the ${readmeFormat} README after a completed coding turn.`,
+      readme.existed
+        ? 'Preserve the existing language, structure, badges, links, commands, and tone. Add or revise only the parts the change requires; do not remove correct existing information.'
+        : 'The project has no README yet. Write a concise, accurate README from the project metadata and this change.',
+      'Never invent features, commands, dependencies, files, or links that are not supported by the provided material.',
+      'Return ONLY the complete README document. Do not wrap it in a code fence and do not add commentary.',
+      'If the change does not require a README edit, return exactly NO_CHANGE.',
+      `Write in ${language}.`,
+    ].join('\n')
+    const profileText = profile === null ? '' : [
+      profile.metadata.join('\n'),
+      profile.topLevel.length > 0 ? `Top-level entries: ${profile.topLevel.join(', ')}` : '',
+    ].filter(Boolean).join('\n')
+    const diffText = [
+      context.stat ? `Diff stat:\n${context.stat}` : '',
+      context.diff ? `Diff excerpt:\n${truncate(context.diff, 12000)}` : '',
+      Array.isArray(context.untrackedSamples) && context.untrackedSamples.length > 0
+        ? `New file excerpts:\n${context.untrackedSamples.map((item) => `--- ${item.file} ---\n${item.sample}`).join('\n\n')}`
+        : '',
+    ].filter(Boolean).join('\n\n')
+    const prompt = [
+      `This README update belongs to one completed coding turn (#${context.turn ?? entry.turn ?? '?'}).`,
+      context.userRequest ? `User request:\n${truncate(context.userRequest, 2000)}` : '',
+      context.assistantSummary ? `Agent's summary of the turn:\n${truncate(context.assistantSummary, 2000)}` : '',
+      `Commit message:\n${message}`,
+      files.length > 0 ? `Changed files:\n${files.slice(0, 100).map((file) => `- ${file}`).join('\n')}` : '',
+      diffText,
+      readme.existed
+        ? `Current README (${readme.name}):\n${readme.content}`
+        : 'Current README: none',
+      profileText ? `Project metadata:\n${truncate(profileText, 5000)}` : '',
+      'Return the complete updated README now, or exactly NO_CHANGE.',
+    ].filter(Boolean).join('\n\n')
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), README_LLM_TIMEOUT_MS)
+    try {
+      let text = ''
+      for await (const chunk of llm.stream({
+        provider: entry.ai.provider,
+        model: entry.ai.model,
+        temperature: 0.2,
+        maxTokens: 4500,
+        signal: controller.signal,
+        purpose: 'git-auto-commit-readme',
+        system,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      })) {
+        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
+        if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
+          throw new Error(chunk.reason?.failure?.message || 'The model did not finish the README update')
+        }
+      }
+      let updated = stripMarkdownFence(text)
+      if (updated === '') throw new Error('The model returned an empty README')
+      const sentinel = updated.replace(/^["'“”]+|["'“”]+$/g, '').trim()
+      if (/^(?:NO_CHANGE|NO CHANGE)\b/i.test(sentinel)) return { status: 'unchanged', file: readme.name }
+      if (/^(?:diff --git |@@ )/m.test(updated)) throw new Error('The model returned a patch instead of a complete README')
+      if (!updated.endsWith('\n')) updated += '\n'
+      if (updated.length > MAX_README_OUTPUT_CHARS) {
+        throw new Error(`The generated README is larger than ${MAX_README_OUTPUT_CHARS} characters`)
+      }
+      const oldTrim = readme.content.trim()
+      if (oldTrim !== '' && updated.trim() === oldTrim) return { status: 'unchanged', file: readme.name }
+      if (oldTrim.length >= 400 && updated.trim().length < oldTrim.length * 0.4) {
+        throw new Error('The model returned a much shorter README, so the original was kept')
+      }
+      await writeAtomic(readme.file, updated)
+      return { status: 'updated', file: readme.name }
+    } catch (error) {
+      console.warn(`[${PLUGIN}] README update failed:`, error?.message || error)
+      return { status: 'failed', file: readme.name, warning: error?.message || String(error) }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   /* ---------------------------------------------------------------- */
   /* commit and push                                                  */
   /* ---------------------------------------------------------------- */
@@ -1639,10 +1827,12 @@ export function apply(ctx) {
     const split = splitCommitMessage(message)
     if (split.subject === '') throw new Error('The commit message has no subject')
     await ensureRepoRoot(cwd, config.branch)
+    const readme = entry.updateReadme === true ? await generateReadmeUpdate(entry, message) : null
+    const readmeResult = readmeFields(readme)
     await runGit(['add', '-A', '--', '.'], cwd)
     const status = await runGit(['status', '--porcelain=v1', '-uall', '--', '.'], cwd)
     if (status.stdout.trim() === '') {
-      return { status: 'no-changes', sessionId: entry.sessionId, repository: config.repository, branch: config.branch }
+      return { status: 'no-changes', sessionId: entry.sessionId, repository: config.repository, branch: config.branch, ...readmeResult }
     }
     const authorArgs = []
     if (state.global.userName.trim() !== '') authorArgs.push('-c', `user.name=${state.global.userName.trim()}`)
@@ -1663,6 +1853,7 @@ export function apply(ctx) {
         repository: config.repository,
         branch: config.branch,
         error: error?.message || String(error),
+        ...readmeResult,
       }
     }
     const hash = (await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim()
@@ -1674,6 +1865,7 @@ export function apply(ctx) {
       commit: hash,
       subject: split.subject,
       files: entry.fileCount,
+      ...readmeResult,
     }
     let rejected = false
     try {
@@ -1775,6 +1967,8 @@ export const __internals = {
   parseGitHubRepository,
   githubPrefixHasAccount,
   collectProjectProfile,
+  readProjectReadme,
+  stripMarkdownFence,
   cleanAiDescription,
   isShortRepositoryName,
   inspectChanges,

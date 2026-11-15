@@ -160,6 +160,10 @@ for (const [locale, table] of Object.entries(localeTables)) {
     'rollback.submit',
     'confirm.branchBase',
     'branch.createdHint',
+    'branch.remoteUpdated',
+    'branch.localFresh',
+    'rollback.remoteUpdated',
+    'rollback.localFresh',
   ]) {
     assert.equal(typeof table[key], 'string', `${locale} has ${key}`)
     assert.ok(table[key].length > 0, `${locale} ${key} is not empty`)

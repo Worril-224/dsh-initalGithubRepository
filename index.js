@@ -1562,32 +1562,33 @@ export function apply(ctx) {
       const project = await projectForSession(body.sessionId)
       if (project === null) return fail('SESSION_NOT_FOUND', 'This session is no longer available')
       if (!(await isRepoRoot(project.cwd))) return fail('GIT_NOT_REPO', 'The session workspace is not a git repository yet')
-      let warning = null
-      if (project.repository !== '') {
+      const readLines = async () => {
         try {
-          await fetchRemoteRefs(project.cwd, project.repository)
+          const { stdout } = await runGit([
+            'log', '--all', '--graph', '--no-color', '--date=short',
+            '--pretty=format:%H%x1f%P%x1f%h%x1f%s%x1f%d%x1f%an%x1f%ad',
+            '-n', '1000',
+          ], project.cwd)
+          return parseGitGraphLog(stdout)
         } catch (error) {
-          warning = `Could not fetch remote branches: ${error?.message || String(error)}`
+          const text = error?.message || String(error)
+          if (/does not have any commits|bad default revision|unknown revision|ambiguous argument 'HEAD'/i.test(text)) return []
+          throw error
         }
       }
-      const catalog = await branchCatalogFor(project.cwd, project.repository)
+      // Read the local graph first; only rebuild it if the remote moved.
+      let lines = await readLines()
+      let remoteInfo = null
+      if (project.repository !== '') {
+        remoteInfo = await readRemoteBranches(project.repository, project.cwd)
+        if (remoteInfo.updated === true) lines = await readLines()
+      }
+      const catalog = await branchCatalogFor(project.cwd, project.repository, remoteInfo)
       let currentCommit = ''
       try {
         currentCommit = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
       } catch {
         currentCommit = ''
-      }
-      let lines = []
-      try {
-        const { stdout } = await runGit([
-          'log', '--all', '--graph', '--no-color', '--date=short',
-          '--pretty=format:%H%x1f%P%x1f%h%x1f%s%x1f%d%x1f%an%x1f%ad',
-          '-n', '1000',
-        ], project.cwd)
-        lines = parseGitGraphLog(stdout)
-      } catch (error) {
-        const text = error?.message || String(error)
-        if (!/does not have any commits|bad default revision|unknown revision|ambiguous argument 'HEAD'/i.test(text)) throw error
       }
       return ok({
         lines,
@@ -1596,7 +1597,9 @@ export function apply(ctx) {
         defaultBranch: catalog.defaultBranch,
         branches: catalog.branches,
         repository: project.repository,
-        warning: warning || catalog.warning,
+        warning: catalog.warning,
+        updated: catalog.updated,
+        remoteChecked: catalog.remoteChecked,
       })
     } catch (error) {
       console.error(`[${PLUGIN}] git/graph failed:`, error)
@@ -2331,8 +2334,8 @@ export function apply(ctx) {
     return pushEnvironment(repository, await readToken())
   }
 
-  async function readRemoteBranches(repository, cwd) {
-    if (repository === '') return { names: [], defaultBranch: '', warning: null }
+  async function readRemoteSnapshot(repository, cwd) {
+    if (repository === '') return { heads: new Map(), defaultBranch: '', warning: null }
     const env = await repoAuthEnv(repository)
     let dir = typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd()
     try {
@@ -2341,28 +2344,131 @@ export function apply(ctx) {
       dir = process.cwd()
     }
     try {
-      const { stdout } = await runGit(['ls-remote', '--heads', repository], dir, env)
-      const names = []
-      for (const line of stdout.split('\n')) {
-        const parts = line.trim().split(/\s+/)
-        const ref = parts[1]
-        if (ref !== undefined && ref.startsWith('refs/heads/')) names.push(ref.slice('refs/heads/'.length))
-      }
+      const { stdout } = await runGit(['ls-remote', '--symref', repository], dir, env)
+      const heads = new Map()
       let defaultBranch = ''
-      try {
-        const sym = await runGit(['ls-remote', '--symref', repository, 'HEAD'], dir, env)
-        const match = sym.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)
-        if (match !== null) defaultBranch = match[1]
-      } catch {
-        // The remote HEAD is optional.
+      for (const raw of stdout.split('\n')) {
+        const line = raw.trim()
+        if (line === '') continue
+        if (line.startsWith('ref: ')) {
+          const match = line.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD$/)
+          if (match !== null) defaultBranch = match[1]
+          continue
+        }
+        const parts = line.split(/\s+/)
+        const hash = parts[0]
+        const ref = parts[1]
+        if (hash !== undefined && ref !== undefined && ref.startsWith('refs/heads/')) {
+          heads.set(ref.slice('refs/heads/'.length), hash)
+        }
       }
-      return { names: [...new Set(names)].sort(), defaultBranch, warning: null }
+      return { heads, defaultBranch, warning: null }
     } catch (error) {
-      return { names: [], defaultBranch: '', warning: `Could not read remote branches: ${error?.message || String(error)}` }
+      return { heads: null, defaultBranch: '', warning: `Could not read remote branches: ${error?.message || String(error)}` }
     }
   }
 
-  async function branchCatalogFor(cwd, repository) {
+  async function localRemoteHeads(cwd) {
+    const heads = new Map()
+    if (typeof cwd !== 'string' || cwd === '') return heads
+    let repo = false
+    try {
+      repo = await isRepoRoot(cwd)
+    } catch {
+      repo = false
+    }
+    if (!repo) return heads
+    try {
+      const { stdout } = await runGit([
+        'for-each-ref',
+        '--format=%(refname:short) %(objectname)',
+        `refs/remotes/${REMOTE_NAME}`,
+      ], cwd)
+      const prefix = `${REMOTE_NAME}/`
+      for (const raw of stdout.split('\n')) {
+        const line = raw.trim()
+        if (line === '') continue
+        const split = line.indexOf(' ')
+        if (split < 0) continue
+        const ref = line.slice(0, split)
+        const hash = line.slice(split + 1).trim()
+        if (!ref.startsWith(prefix)) continue
+        const name = ref.slice(prefix.length)
+        if (name === '' || name === 'HEAD') continue
+        heads.set(name, hash)
+      }
+    } catch {
+      // Local tracking refs are optional.
+    }
+    return heads
+  }
+
+  function remoteHeadsDiffer(remote, local) {
+    if (remote.size !== local.size) return true
+    for (const [name, hash] of remote) {
+      if (local.get(name) !== hash) return true
+    }
+    return false
+  }
+
+  async function fetchRemoteTracking(cwd, repository) {
+    const remoteUrl = await prepareRemote(cwd, repository)
+    const token = await readToken()
+    const env = pushEnvironment(remoteUrl, token)
+    await runGit(['fetch', remoteUrl, `+refs/heads/*:refs/remotes/${REMOTE_NAME}/*`, '--prune'], cwd, env)
+    return remoteUrl
+  }
+
+  async function readRemoteBranches(repository, cwd) {
+    if (repository === '') {
+      return { names: [], defaultBranch: '', warning: null, updated: false, remoteChecked: false }
+    }
+    let repo = false
+    if (typeof cwd === 'string' && cwd !== '') {
+      try {
+        repo = await isRepoRoot(cwd)
+      } catch {
+        repo = false
+      }
+    }
+    const snapshot = await readRemoteSnapshot(repository, cwd)
+    if (!repo) {
+      return {
+        names: snapshot.heads === null ? [] : [...snapshot.heads.keys()].sort(),
+        defaultBranch: snapshot.defaultBranch,
+        warning: snapshot.warning,
+        updated: false,
+        remoteChecked: snapshot.heads !== null,
+      }
+    }
+    let updated = false
+    let syncWarning = null
+    if (snapshot.heads !== null) {
+      const local = await localRemoteHeads(cwd)
+      if (remoteHeadsDiffer(snapshot.heads, local)) {
+        try {
+          await fetchRemoteTracking(cwd, repository)
+          updated = true
+        } catch (error) {
+          syncWarning = `Could not update local remote refs: ${error?.message || String(error)}`
+        }
+      }
+    }
+    const local = await localRemoteHeads(cwd)
+    const names = new Set(local.keys())
+    if (snapshot.heads !== null) {
+      for (const name of snapshot.heads.keys()) names.add(name)
+    }
+    return {
+      names: [...names].sort(),
+      defaultBranch: snapshot.defaultBranch || state.global.defaultBranch || '',
+      warning: snapshot.warning || syncWarning,
+      updated,
+      remoteChecked: snapshot.heads !== null,
+    }
+  }
+
+  async function branchCatalogFor(cwd, repository, remoteInfo) {
     const local = new Set()
     let current = ''
     let localWarning = null
@@ -2380,7 +2486,7 @@ export function apply(ctx) {
         localWarning = `Could not read local branches: ${error?.message || String(error)}`
       }
     }
-    const remote = await readRemoteBranches(repository, cwd)
+    const remote = remoteInfo || await readRemoteBranches(repository, cwd)
     const map = new Map()
     for (const name of local) map.set(name, { name, local: true, remote: false, current: name === current })
     for (const name of remote.names) {
@@ -2397,16 +2503,14 @@ export function apply(ctx) {
       if (aDefault !== bDefault) return aDefault ? -1 : 1
       return a.name.localeCompare(b.name)
     })
-    return { branches, current, defaultBranch, warning: remote.warning || localWarning }
-  }
-
-  async function fetchRemoteRefs(cwd, repository) {
-    if (repository === '') return null
-    const remoteUrl = await prepareRemote(cwd, repository)
-    const token = await readToken()
-    const env = pushEnvironment(remoteUrl, token)
-    await runGit(['fetch', remoteUrl, '+refs/heads/*:refs/remotes/dsh-auto-commit/*', '--prune'], cwd, env)
-    return remoteUrl
+    return {
+      branches,
+      current,
+      defaultBranch,
+      warning: remote.warning || localWarning,
+      updated: remote.updated === true,
+      remoteChecked: remote.remoteChecked === true,
+    }
   }
 
   async function resolveBranchCommit(cwd, repository, branch, remoteUrlOverride) {

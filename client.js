@@ -68,6 +68,8 @@ window.__ModuleLoader__.load({
       'branch.loading': '正在读取分支…',
       'branch.refresh': '刷新分支',
       'branch.loadFailed': '无法读取分支：{error}（当前配置仍可保存）',
+      'branch.remoteUpdated': '检测到远程分支变化，已更新本地引用。',
+      'branch.localFresh': '本地分支引用与远程一致。',
       'branch.current': '当前',
       'branch.remote': '远程',
       'branch.selectHint': '从仓库现有分支中选择；最后一项可新建分支。修改仓库后可点“刷新分支”。',
@@ -200,6 +202,8 @@ window.__ModuleLoader__.load({
       'rollback.refresh': '刷新提交树',
       'rollback.empty': '仓库中还没有提交。',
       'rollback.loadFailed': '无法读取提交树：{error}',
+      'rollback.remoteUpdated': '检测到远程分支变化，已更新本地引用并重建提交树。',
+      'rollback.localFresh': '提交树使用本地 Git 数据，与远程一致。',
       'rollback.selected': '已选择 {short}',
       'rollback.message': '回退提交信息',
       'rollback.messageHint': '留空则使用默认的 revert: restore ...。',
@@ -289,6 +293,8 @@ window.__ModuleLoader__.load({
       'branch.loading': 'Loading branches…',
       'branch.refresh': 'Refresh branches',
       'branch.loadFailed': 'Could not load branches: {error} (the current value can still be saved)',
+      'branch.remoteUpdated': 'Remote branch changes detected; local refs were updated.',
+      'branch.localFresh': 'Local branch refs match the remote.',
       'branch.current': 'current',
       'branch.remote': 'remote',
       'branch.selectHint': 'Choose an existing branch in the repository; the last option creates a new one. After changing the repository, use Refresh branches.',
@@ -421,6 +427,8 @@ window.__ModuleLoader__.load({
       'rollback.refresh': 'Refresh commit tree',
       'rollback.empty': 'The repository has no commits yet.',
       'rollback.loadFailed': 'Could not load the commit tree: {error}',
+      'rollback.remoteUpdated': 'Remote branch changes detected; local refs were updated and the tree was rebuilt.',
+      'rollback.localFresh': 'The tree uses local Git data and matches the remote.',
       'rollback.selected': 'Selected {short}',
       'rollback.message': 'Rollback commit message',
       'rollback.messageHint': 'Leave empty to use the default revert: restore ... message.',
@@ -1136,6 +1144,9 @@ window.__ModuleLoader__.load({
           ),
           catalog.error ? h('div', { className: 'dsh-git-warn' }, t('branch.loadFailed', { error: catalog.error })) : null,
           catalog.warning ? h('div', { className: 'dsh-git-hint' }, catalog.warning) : null,
+          catalog.updated
+            ? h('div', { className: 'dsh-git-hint' }, t('branch.remoteUpdated'))
+            : catalog.remoteChecked ? h('div', { className: 'dsh-git-hint' }, t('branch.localFresh')) : null,
           base && value ? h('div', { className: 'dsh-git-hint' }, t('branch.createdHint', { base, name: value })) : null,
         ),
         newOpen
@@ -1218,7 +1229,7 @@ window.__ModuleLoader__.load({
     }
 
     function RollbackDialog({ sessionId, store, t, onClose }) {
-      const [tree, setTree] = useState({ loading: true, error: null, lines: [], branches: [], current: '', currentCommit: '', warning: null })
+      const [tree, setTree] = useState({ loading: true, error: null, lines: [], branches: [], current: '', currentCommit: '', warning: null, updated: false, remoteChecked: false })
       const [selected, setSelected] = useState(null)
       const [message, setMessage] = useState('')
       const [push, setPush] = useState(true)
@@ -1239,6 +1250,8 @@ window.__ModuleLoader__.load({
             current: data.current || '',
             currentCommit: data.currentCommit || '',
             warning: data.warning || null,
+            updated: data.updated === true,
+            remoteChecked: data.remoteChecked === true,
           })
         } catch (loadError) {
           setTree((current) => ({
@@ -1326,6 +1339,9 @@ window.__ModuleLoader__.load({
             }, tree.loading ? t('common.loading') : t('rollback.refresh')),
           ),
           tree.warning ? h('div', { className: 'dsh-git-warn' }, t('rollback.warning', { warning: tree.warning })) : null,
+          tree.updated
+            ? h('div', { className: 'dsh-git-hint' }, t('rollback.remoteUpdated'))
+            : tree.remoteChecked ? h('div', { className: 'dsh-git-hint' }, t('rollback.localFresh')) : null,
           h('div', { className: 'dsh-git-graphbox' }, graph),
           selectedLine ? h('div', { className: 'dsh-git-hint', style: { marginTop: 6 } }, t('rollback.selected', { short: selectedLine.short })) : null,
           h('div', { className: 'dsh-git-hint' }, t('rollback.cleanHint')),
@@ -1382,7 +1398,7 @@ window.__ModuleLoader__.load({
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
-      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null })
+      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null, updated: false, remoteChecked: false })
       const [rollbackOpen, setRollbackOpen] = useState(false)
       const [seeded, setSeeded] = useState(Boolean(config))
       const [saving, setSaving] = useState(false)
@@ -1419,6 +1435,8 @@ window.__ModuleLoader__.load({
             defaultBranch: data.defaultBranch || '',
             warning: data.warning || null,
             error: null,
+            updated: data.updated === true,
+            remoteChecked: data.remoteChecked === true,
           })
         } catch (loadError) {
           setBranchState((current) => ({
@@ -2168,7 +2186,7 @@ window.__ModuleLoader__.load({
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
-      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null })
+      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null, updated: false, remoteChecked: false })
       const [mergeSource, setMergeSource] = useState('')
       const [rebaseOnto, setRebaseOnto] = useState('')
       const [pushAfter, setPushAfter] = useState(true)
@@ -2210,6 +2228,8 @@ window.__ModuleLoader__.load({
             defaultBranch: data.defaultBranch || '',
             warning: data.warning || null,
             error: null,
+            updated: data.updated === true,
+            remoteChecked: data.remoteChecked === true,
           })
         } catch (loadError) {
           setBranchState((current) => ({

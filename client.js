@@ -65,6 +65,28 @@ window.__ModuleLoader__.load({
       'session.repositoryPlaceholder': '短名、owner/repo、完整 URL 或本地路径',
       'session.repositoryHint': '短名会拼接 Git 设置中的默认仓库前缀；owner/repo 使用 github.com；完整 URL 原样保存。本地路径请使用绝对路径或以 ./、../、~/ 开头。',
       'session.branch': '分支',
+      'branch.loading': '正在读取分支…',
+      'branch.refresh': '刷新分支',
+      'branch.loadFailed': '无法读取分支：{error}（当前配置仍可保存）',
+      'branch.current': '当前',
+      'branch.remote': '远程',
+      'branch.selectHint': '从仓库现有分支中选择；最后一项可新建分支。修改仓库后可点“刷新分支”。',
+      'branch.newOption': '＋ 新建分支…',
+      'branch.createTitle': '新建分支',
+      'branch.createSub': '选择新分支的起点并输入分支名；首次提交时会创建并切换到该分支。',
+      'branch.base': '基于分支',
+      'branch.name': '新分支名',
+      'branch.namePlaceholder': '例如 feature/login',
+      'branch.nameRequired': '请输入新分支名。',
+      'branch.nameInvalid': '分支名不合法：不能包含空格、~ ^ : ? * [ 或连续的点，也不能以 / 或 . 结尾。',
+      'branch.nameExists': '该分支已存在，请直接从分支列表选择。',
+      'branch.sameAsBase': '新分支不能与基于的分支同名。',
+      'branch.create': '使用这个分支',
+      'branch.cancel': '取消',
+      'branch.currentHead': '当前 HEAD',
+      'branch.unknown': '未检测到',
+      'branch.none': '暂无分支',
+      'branch.createdHint': '保存后，首次提交会自动从 {base} 创建分支 {name}。',
       'session.save': '保存',
       'session.reset': '恢复为工作区默认',
       'session.resetHint': '删除会话独立配置，重新按工作区默认解析（只对满足条件的新会话生效）。',
@@ -78,6 +100,22 @@ window.__ModuleLoader__.load({
       'workspace.updateReadmeHint': '只复制给此后新建的会话；已有会话不受影响。需要同时开启该会话的自动提交才会生效。',
       'workspace.repository': '默认代码仓库',
       'workspace.branch': '默认分支',
+      'workspace.branchOps': '分支操作',
+      'workspace.branchOpsHint': '直接作用于工作区当前检出的分支（{current}）。操作前工作区必须没有未提交改动；分支操作使用已保存的仓库设置。',
+      'workspace.currentBranch': '当前分支',
+      'workspace.mergeSource': '合并来源分支',
+      'workspace.merge': '合并到当前分支',
+      'workspace.rebaseOnto': 'Rebase 目标分支',
+      'workspace.rebase': 'Rebase 当前分支',
+      'workspace.pushAfter': '完成后推送到配置仓库',
+      'workspace.mergeDone': '已合并 {source}（{result}）。',
+      'workspace.rebaseDone': '已把当前分支 rebase 到 {onto}（{result}）。',
+      'workspace.opWorking': '正在执行…',
+      'workspace.upToDate': '已经是最新，无需操作。',
+      'workspace.opFailed': '操作失败',
+      'workspace.pushFailed': '本地操作成功，但推送失败：{error}',
+      'workspace.pushSkipped': '本地操作成功；未配置仓库，未推送。',
+      'workspace.notRepo': '工作区还不是 Git 仓库。',
       'workspace.save': '保存',
       'workspace.reset': '清除工作区默认',
       'workspace.hint': '新建会话时复制此配置；已存在的会话保持原配置。默认关闭。',
@@ -140,6 +178,7 @@ window.__ModuleLoader__.load({
       'confirm.branch': '分支',
       'confirm.files': '工作区未提交改动（{n} 个文件）',
       'confirm.filesHint': '包含本轮之前尚未提交的改动；提交会暂存整个工作区。',
+      'confirm.branchBase': '本次提交会从 {base} 创建并切换到新分支 {branch}。',
       'confirm.readmeHint': '本次提交会先让 AI 更新 README（与 Commit 信息使用同一模型），再一起提交。',
       'confirm.message': 'Commit 信息',
       'confirm.messageHint': '第一行是标题，空一行后可以写正文。',
@@ -152,6 +191,29 @@ window.__ModuleLoader__.load({
       'confirm.workingHint': '提交和推送会在后台继续。隐藏本窗口不影响你继续使用 DSH，完成后右下角会提示结果。',
       'confirm.moreFiles': '还有 {n} 个文件未列出',
       'confirm.emptyMessage': 'Commit 信息不能为空。',
+      'rollback.section': '版本回退',
+      'rollback.sectionHint': '查看提交树，把项目内容恢复到任意历史提交；新提交会接在当前分支后面，历史不会被覆盖。',
+      'rollback.open': '版本回退…',
+      'rollback.title': '版本回退',
+      'rollback.sub': '选择要恢复的提交。回退会创建一个新提交，当前历史和被回退的版本都会保留。',
+      'rollback.loading': '正在读取提交树…',
+      'rollback.refresh': '刷新提交树',
+      'rollback.empty': '仓库中还没有提交。',
+      'rollback.loadFailed': '无法读取提交树：{error}',
+      'rollback.selected': '已选择 {short}',
+      'rollback.message': '回退提交信息',
+      'rollback.messageHint': '留空则使用默认的 revert: restore ...。',
+      'rollback.push': '回退后推送到配置仓库',
+      'rollback.submit': '回退到此版本',
+      'rollback.working': '正在回退…',
+      'rollback.success': '已创建回退提交 {commit}；历史未被覆盖。',
+      'rollback.noSelection': '请先在提交树中选择一个提交。',
+      'rollback.hint': '只回退项目内容，不删除被回退的提交。',
+      'rollback.cleanHint': '回退前工作区必须没有未提交改动。',
+      'rollback.current': '当前分支',
+      'rollback.warning': '提示：{warning}',
+      'rollback.close': '关闭',
+      'rollback.restoreFrom': '恢复到 {short}',
       'toast.pushed': '已提交并推送到 {repo}',
       'toast.pushedMerged': '已合并远程历史并推送到 {repo}',
       'toast.committed': '已提交（推送失败，提交保留在本地）',
@@ -224,6 +286,28 @@ window.__ModuleLoader__.load({
       'session.repositoryPlaceholder': 'Short name, owner/repo, full URL, or local path',
       'session.repositoryHint': 'A short name uses the default repository prefix from Git settings; owner/repo uses github.com; full URLs are stored as-is. Prefix local paths with /, ./, ../, or ~.',
       'session.branch': 'Branch',
+      'branch.loading': 'Loading branches…',
+      'branch.refresh': 'Refresh branches',
+      'branch.loadFailed': 'Could not load branches: {error} (the current value can still be saved)',
+      'branch.current': 'current',
+      'branch.remote': 'remote',
+      'branch.selectHint': 'Choose an existing branch in the repository; the last option creates a new one. After changing the repository, use Refresh branches.',
+      'branch.newOption': '＋ Create a new branch…',
+      'branch.createTitle': 'Create a new branch',
+      'branch.createSub': 'Choose the starting point and name. The branch is created and checked out on the next commit.',
+      'branch.base': 'Based on branch',
+      'branch.name': 'New branch name',
+      'branch.namePlaceholder': 'e.g. feature/login',
+      'branch.nameRequired': 'Enter a branch name.',
+      'branch.nameInvalid': 'Invalid branch name: no spaces, ~ ^ : ? * [ or consecutive dots, and it cannot end with / or .',
+      'branch.nameExists': 'That branch already exists; select it from the list instead.',
+      'branch.sameAsBase': 'The new branch cannot have the same name as its base.',
+      'branch.create': 'Use this branch',
+      'branch.cancel': 'Cancel',
+      'branch.currentHead': 'Current HEAD',
+      'branch.unknown': 'not detected',
+      'branch.none': 'No branches yet',
+      'branch.createdHint': 'After saving, the first commit will create {name} from {base}.',
       'session.save': 'Save',
       'session.reset': 'Use workspace default',
       'session.resetHint': 'Remove the session override and resolve from the workspace default again (only new eligible sessions inherit it).',
@@ -237,6 +321,22 @@ window.__ModuleLoader__.load({
       'workspace.updateReadmeHint': 'Copied only to sessions created afterwards; existing sessions are unchanged. Takes effect only when the session also has auto-commit enabled.',
       'workspace.repository': 'Default repository',
       'workspace.branch': 'Default branch',
+      'workspace.branchOps': 'Branch operations',
+      'workspace.branchOpsHint': 'Operates on the branch currently checked out in the workspace ({current}). The working tree must be clean; branch operations use the saved repository settings.',
+      'workspace.currentBranch': 'Current branch',
+      'workspace.mergeSource': 'Branch to merge',
+      'workspace.merge': 'Merge into current branch',
+      'workspace.rebaseOnto': 'Rebase onto branch',
+      'workspace.rebase': 'Rebase current branch',
+      'workspace.pushAfter': 'Push to the configured repository when done',
+      'workspace.mergeDone': 'Merged {source} ({result}).',
+      'workspace.rebaseDone': 'Rebased the current branch onto {onto} ({result}).',
+      'workspace.opWorking': 'Working…',
+      'workspace.upToDate': 'Already up to date; nothing to do.',
+      'workspace.opFailed': 'Operation failed',
+      'workspace.pushFailed': 'The local operation succeeded, but the push failed: {error}',
+      'workspace.pushSkipped': 'The local operation succeeded; no repository is configured, so nothing was pushed.',
+      'workspace.notRepo': 'The workspace is not a Git repository yet.',
       'workspace.save': 'Save',
       'workspace.reset': 'Clear workspace default',
       'workspace.hint': 'New sessions copy this configuration; existing sessions keep theirs. Off by default.',
@@ -299,6 +399,7 @@ window.__ModuleLoader__.load({
       'confirm.branch': 'Branch',
       'confirm.files': 'Uncommitted workspace changes ({n} files)',
       'confirm.filesHint': 'Includes changes left uncommitted by earlier turns; committing stages the whole workspace.',
+      'confirm.branchBase': 'This commit will create and check out the new branch {branch} from {base}.',
       'confirm.readmeHint': 'The AI will update the README first (same model as the commit message), then commit it together.',
       'confirm.message': 'Commit message',
       'confirm.messageHint': 'The first line is the subject; leave a blank line before the body.',
@@ -311,6 +412,29 @@ window.__ModuleLoader__.load({
       'confirm.workingHint': 'Commit and push continue in the background. Hiding this window does not stop them; the result appears in the lower-right corner when finished.',
       'confirm.moreFiles': '{n} more files not listed',
       'confirm.emptyMessage': 'The commit message cannot be empty.',
+      'rollback.section': 'Version rollback',
+      'rollback.sectionHint': 'Inspect the commit tree and restore the project content to any earlier commit; a new commit is appended and history is preserved.',
+      'rollback.open': 'Version rollback…',
+      'rollback.title': 'Version rollback',
+      'rollback.sub': 'Select a commit to restore. Rollback creates a new commit; the current history and the selected version both remain available.',
+      'rollback.loading': 'Loading the commit tree…',
+      'rollback.refresh': 'Refresh commit tree',
+      'rollback.empty': 'The repository has no commits yet.',
+      'rollback.loadFailed': 'Could not load the commit tree: {error}',
+      'rollback.selected': 'Selected {short}',
+      'rollback.message': 'Rollback commit message',
+      'rollback.messageHint': 'Leave empty to use the default revert: restore ... message.',
+      'rollback.push': 'Push after rolling back',
+      'rollback.submit': 'Roll back to this version',
+      'rollback.working': 'Rolling back…',
+      'rollback.success': 'Created rollback commit {commit}; history was not overwritten.',
+      'rollback.noSelection': 'Select a commit in the tree first.',
+      'rollback.hint': 'Only project content is restored; the selected commit is not deleted.',
+      'rollback.cleanHint': 'The working tree must be clean before rolling back.',
+      'rollback.current': 'Current branch',
+      'rollback.warning': 'Note: {warning}',
+      'rollback.close': 'Close',
+      'rollback.restoreFrom': 'Restore from {short}',
       'toast.pushed': 'Committed and pushed to {repo}',
       'toast.pushedMerged': 'Merged remote history and pushed to {repo}',
       'toast.committed': 'Committed (push failed; the commit is kept locally)',
@@ -435,6 +559,22 @@ window.__ModuleLoader__.load({
 .dsh-git-chip[data-on="true"]{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 45%,transparent)}
 .dsh-git-filebox{margin-top:6px;max-height:130px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);padding:7px 9px;font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:1.55}
 .dsh-git-filebox div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary)}
+.dsh-git-graphbox{max-height:44vh;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);padding:6px}
+.dsh-git-graph-row{display:flex;align-items:center;gap:8px;width:100%;min-height:23px;padding:1px 6px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-align:left;white-space:nowrap;cursor:pointer}
+.dsh-git-graph-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}
+.dsh-git-graph-row[data-selected="true"]{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent)}
+.dsh-git-graph-row.is-graph{cursor:default;color:var(--dsw-alias-label-secondary)}
+.dsh-git-graph-row.is-graph:hover{background:transparent}
+.dsh-git-graph-prefix{flex:none;white-space:pre;color:var(--dsw-alias-brand-primary);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace)}
+.dsh-git-graph-hash{flex:none;color:var(--dsw-alias-label-secondary);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace)}
+.dsh-git-graph-subject{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dsh-git-graph-refs{flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;padding:1px 6px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:10px}
+.dsh-git-graph-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.dsh-git-graph-meta .dsh-git-hint{margin-top:0}
+.dsh-git-branchrow{display:flex;align-items:center;gap:8px}
+.dsh-git-branchrow .dsh-git-select{flex:1;min-width:0}
+.dsh-git-opresult{margin-top:8px;font-size:11.5px;line-height:1.5;overflow-wrap:anywhere;color:var(--dsw-alias-state-success-primary)}
+.dsh-git-opresult[data-tone="warn"]{color:var(--dsw-alias-state-warn-primary)}
 .dsh-git-kv{display:grid;grid-template-columns:76px minmax(0,1fr);gap:4px 10px;font-size:12px;margin-bottom:10px}
 .dsh-git-kv .dsh-git-k{color:var(--dsw-alias-label-secondary)}
 .dsh-git-kv .dsh-git-v{overflow-wrap:anywhere;font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px}
@@ -687,6 +827,26 @@ window.__ModuleLoader__.load({
         return apiCall('ai/describe', payload, 60000)
       }
 
+      function loadBranches(payload) {
+        return apiCall('git/branches', payload, 60000)
+      }
+
+      function loadGitGraph(payload) {
+        return apiCall('git/graph', payload, 60000)
+      }
+
+      function rollbackVersion(payload) {
+        return apiCall('git/rollback', payload, 180000)
+      }
+
+      function mergeBranch(payload) {
+        return apiCall('git/merge', payload, 180000)
+      }
+
+      function rebaseBranch(payload) {
+        return apiCall('git/rebase', payload, 180000)
+      }
+
       function openWorkspaceDialog(workspaceId, displayTitle) {
         set({ workspaceDialog: { workspaceId, displayTitle: displayTitle || '' } })
         if (!snapshot.loaded) void refresh()
@@ -743,7 +903,7 @@ window.__ModuleLoader__.load({
         return snapshot
       }
 
-      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
+      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, loadBranches, loadGitGraph, rollbackVersion, mergeBranch, rebaseBranch, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
     }
 
     function useStore(store) {
@@ -920,6 +1080,295 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------ */
+    /* branch picker + branch operations + rollback                 */
+    /* ------------------------------------------------------------ */
+
+    const NEW_BRANCH_OPTION = '__dsh_new_branch__'
+
+    function validBranchNameClient(value) {
+      const name = String(value || '').trim()
+      if (name === '' || name === '@' || name.startsWith('-') || name.startsWith('/') || name.endsWith('/') || name.endsWith('.')) return false
+      if (name.includes('..') || name.includes('@{')) return false
+      return !/[\s~^:?*\[\\]/.test(name)
+    }
+
+    function BranchSelect({ label, value, base, catalog, onReload, onChange, t }) {
+      const [newOpen, setNewOpen] = useState(false)
+      const branches = Array.isArray(catalog.branches) ? catalog.branches : []
+      const names = branches.map((entry) => entry.name)
+      if (value !== '' && !names.includes(value)) names.unshift(value)
+      const baseValue = base || catalog.current || value || catalog.defaultBranch || ''
+      return h(React.Fragment, null,
+        h(Field, { label, hint: t('branch.selectHint') },
+          h('div', { className: 'dsh-git-branchrow' },
+            h('select', {
+              className: 'dsh-git-select',
+              'aria-label': label,
+              value,
+              disabled: catalog.loading,
+              onChange: (event) => {
+                const next = event.target.value
+                if (next === NEW_BRANCH_OPTION) {
+                  setNewOpen(true)
+                  return
+                }
+                onChange({ name: next, base: '' })
+              },
+            },
+            names.length === 0 && value === ''
+              ? h('option', { value: '' }, catalog.loading ? t('branch.loading') : t('branch.none'))
+              : null,
+            names.map((name) => {
+              const entry = branches.find((item) => item.name === name)
+              const marks = []
+              if (entry && entry.current) marks.push(t('branch.current'))
+              if (entry && entry.remote && !entry.local) marks.push(t('branch.remote'))
+              return h('option', { key: name, value: name }, marks.length > 0 ? `${name} (${marks.join(', ')})` : name)
+            }),
+            h('option', { value: NEW_BRANCH_OPTION }, t('branch.newOption')),
+            ),
+            h('button', {
+              type: 'button',
+              className: 'dsh-git-btn',
+              disabled: catalog.loading,
+              onClick: () => onReload(),
+            }, catalog.loading ? t('common.loading') : t('branch.refresh')),
+          ),
+          catalog.error ? h('div', { className: 'dsh-git-warn' }, t('branch.loadFailed', { error: catalog.error })) : null,
+          catalog.warning ? h('div', { className: 'dsh-git-hint' }, catalog.warning) : null,
+          base && value ? h('div', { className: 'dsh-git-hint' }, t('branch.createdHint', { base, name: value })) : null,
+        ),
+        newOpen
+          ? h(CreateBranchDialog, {
+            branches,
+            defaultBase: baseValue,
+            initialName: '',
+            t,
+            onCancel: () => setNewOpen(false),
+            onConfirm: ({ name, base: nextBase }) => {
+              setNewOpen(false)
+              onChange({ name, base: nextBase })
+            },
+          })
+          : null,
+      )
+    }
+
+    function CreateBranchDialog({ branches, defaultBase, initialName, t, onCancel, onConfirm }) {
+      const [name, setName] = useState(initialName || '')
+      const [base, setBase] = useState(defaultBase || '')
+      const [error, setError] = useState(null)
+      const names = branches.map((entry) => entry.name)
+      if (base !== '' && !names.includes(base)) names.unshift(base)
+      const submit = () => {
+        setError(null)
+        const trimmed = name.trim()
+        if (trimmed === '') {
+          setError(t('branch.nameRequired'))
+          return
+        }
+        if (!validBranchNameClient(trimmed)) {
+          setError(t('branch.nameInvalid'))
+          return
+        }
+        if (branches.some((entry) => entry.name === trimmed)) {
+          setError(t('branch.nameExists'))
+          return
+        }
+        if (trimmed === base) {
+          setError(t('branch.sameAsBase'))
+          return
+        }
+        onConfirm({ name: trimmed, base })
+      }
+      return h(Modal, {
+        title: t('branch.createTitle'),
+        subtitle: t('branch.createSub'),
+        onClose: onCancel,
+        closeLabel: t('branch.cancel'),
+        children: h(React.Fragment, null,
+          h(Field, { label: t('branch.base') }, h('select', {
+            className: 'dsh-git-select',
+            'aria-label': t('branch.base'),
+            value: base,
+            onChange: (event) => setBase(event.target.value),
+          },
+          h('option', { value: '' }, t('branch.currentHead')),
+          names.map((branchName) => h('option', { key: branchName, value: branchName }, branchName)),
+          )),
+          h(Field, { label: t('branch.name') }, h('input', {
+            className: 'dsh-git-input',
+            'aria-label': t('branch.name'),
+            value: name,
+            placeholder: t('branch.namePlaceholder'),
+            spellCheck: false,
+            onChange: (event) => setName(event.target.value),
+          })),
+          error ? h('div', { className: 'dsh-git-error' }, error) : null,
+          h('div', { className: 'dsh-git-hint' }, t('branch.createdHint', {
+            base: base === '' ? t('branch.currentHead') : base,
+            name: name.trim() === '' ? '—' : name.trim(),
+          })),
+        ),
+        footer: h(React.Fragment, null,
+          h('button', { type: 'button', className: 'dsh-git-btn', onClick: onCancel }, t('branch.cancel')),
+          h('button', { type: 'button', className: 'dsh-git-btn dsh-git-btn-primary', onClick: submit }, t('branch.create')),
+        ),
+      })
+    }
+
+    function RollbackDialog({ sessionId, store, t, onClose }) {
+      const [tree, setTree] = useState({ loading: true, error: null, lines: [], branches: [], current: '', currentCommit: '', warning: null })
+      const [selected, setSelected] = useState(null)
+      const [message, setMessage] = useState('')
+      const [push, setPush] = useState(true)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState(null)
+      const [result, setResult] = useState(null)
+      const selectedLine = tree.lines.find((line) => line.type === 'commit' && line.hash === selected)
+
+      const load = useCallback(async () => {
+        setTree((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const data = await store.loadGitGraph({ sessionId })
+          setTree({
+            loading: false,
+            error: null,
+            lines: Array.isArray(data.lines) ? data.lines : [],
+            branches: Array.isArray(data.branches) ? data.branches : [],
+            current: data.current || '',
+            currentCommit: data.currentCommit || '',
+            warning: data.warning || null,
+          })
+        } catch (loadError) {
+          setTree((current) => ({
+            ...current,
+            loading: false,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          }))
+        }
+      }, [sessionId, store])
+
+      useEffect(() => { void load() }, [load])
+
+      useEffect(() => {
+        if (selectedLine !== undefined) {
+          setMessage(`revert: restore ${selectedLine.short} ${selectedLine.subject}`)
+        }
+      }, [selected])
+
+      const submit = async () => {
+        if (selected === null) {
+          setError(t('rollback.noSelection'))
+          return
+        }
+        setBusy(true)
+        setError(null)
+        setResult(null)
+        try {
+          const data = await store.rollbackVersion({
+            sessionId,
+            commit: selected,
+            message: message.trim(),
+            push,
+          })
+          setResult(data)
+          setSelected(null)
+          await load()
+        } catch (submitError) {
+          setError(submitError && submitError.message ? submitError.message : String(submitError))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const graph = tree.loading
+        ? h('div', { className: 'dsh-git-loading' }, t('rollback.loading'))
+        : tree.error
+          ? h(React.Fragment, null,
+            h('div', { className: 'dsh-git-error' }, t('rollback.loadFailed', { error: tree.error })),
+            h('button', { type: 'button', className: 'dsh-git-btn', style: { marginTop: 8 }, onClick: () => { void load() } }, t('common.retry')),
+          )
+          : tree.lines.length === 0
+            ? h('div', { className: 'dsh-git-loading' }, t('rollback.empty'))
+            : tree.lines.map((line, index) => line.type === 'graph'
+              ? h('div', { key: `graph-${index}`, className: 'dsh-git-graph-row is-graph' },
+                h('span', { className: 'dsh-git-graph-prefix' }, line.graph),
+              )
+              : h('button', {
+                key: line.hash,
+                type: 'button',
+                className: 'dsh-git-graph-row',
+                'data-selected': selected === line.hash ? 'true' : 'false',
+                title: [line.author, line.date].filter(Boolean).join(' · '),
+                onClick: () => setSelected(line.hash),
+              },
+              h('span', { className: 'dsh-git-graph-prefix' }, line.graph),
+              h('span', { className: 'dsh-git-graph-hash' }, line.short),
+              h('span', { className: 'dsh-git-graph-subject' }, line.subject),
+              line.refs ? h('span', { className: 'dsh-git-graph-refs' }, line.refs.replace(/^\(|\)$/g, '')) : null,
+              ))
+
+      return h(Modal, {
+        title: t('rollback.title'),
+        subtitle: t('rollback.sub'),
+        onClose: busy ? undefined : onClose,
+        closeLabel: t('rollback.close'),
+        wide: true,
+        children: h(React.Fragment, null,
+          h('div', { className: 'dsh-git-graph-meta' },
+            h('div', { className: 'dsh-git-hint' }, `${t('rollback.current')}: ${tree.current || t('branch.unknown')}`),
+            h('button', {
+              type: 'button',
+              className: 'dsh-git-btn',
+              disabled: busy || tree.loading,
+              onClick: () => { void load() },
+            }, tree.loading ? t('common.loading') : t('rollback.refresh')),
+          ),
+          tree.warning ? h('div', { className: 'dsh-git-warn' }, t('rollback.warning', { warning: tree.warning })) : null,
+          h('div', { className: 'dsh-git-graphbox' }, graph),
+          selectedLine ? h('div', { className: 'dsh-git-hint', style: { marginTop: 6 } }, t('rollback.selected', { short: selectedLine.short })) : null,
+          h('div', { className: 'dsh-git-hint' }, t('rollback.cleanHint')),
+          h('div', { className: 'dsh-git-hint' }, t('rollback.hint')),
+          selectedLine ? h(Field, {
+            label: t('rollback.message'),
+            hint: t('rollback.messageHint'),
+          }, h('textarea', {
+            className: 'dsh-git-textarea',
+            style: { minHeight: 64 },
+            'aria-label': t('rollback.message'),
+            value: message,
+            spellCheck: false,
+            onChange: (event) => setMessage(event.target.value),
+          })) : null,
+          h('label', { className: 'dsh-git-checkrow', style: { marginTop: 8 } },
+            h('input', {
+              type: 'checkbox',
+              checked: push,
+              onChange: (event) => setPush(event.target.checked),
+            }),
+            h('span', null, t('rollback.push')),
+          ),
+          result ? h('div', { className: 'dsh-git-opresult' },
+            t('rollback.success', { commit: String(result.commit || '').slice(0, 10) }),
+            result.status === 'push-failed' ? h('div', { className: 'dsh-git-warn' }, result.error || t('toast.pushFailedTitle')) : null,
+            result.pushed ? h('div', { className: 'dsh-git-hint' }, t('toast.pushed', { repo: repoLabel(result.repository) })) : null,
+          ) : null,
+          error ? h('div', { className: 'dsh-git-error', style: { marginTop: 8 } }, error) : null,
+        ),
+        footer: h(React.Fragment, null,
+          h('button', { type: 'button', className: 'dsh-git-btn', disabled: busy, onClick: onClose }, t('rollback.close')),
+          h('button', {
+            type: 'button',
+            className: 'dsh-git-btn dsh-git-btn-primary',
+            disabled: busy || selected === null,
+            onClick: () => { void submit() },
+          }, busy ? t('rollback.working') : t('rollback.submit')),
+        ),
+      })
+    }
+
+    /* ------------------------------------------------------------ */
     /* session dialog                                               */
     /* ------------------------------------------------------------ */
 
@@ -932,6 +1381,9 @@ window.__ModuleLoader__.load({
       const [updateReadme, setUpdateReadme] = useState(Boolean(config && config.updateReadme))
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
+      const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
+      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null })
+      const [rollbackOpen, setRollbackOpen] = useState(false)
       const [seeded, setSeeded] = useState(Boolean(config))
       const [saving, setSaving] = useState(false)
       const [error, setError] = useState(null)
@@ -946,12 +1398,40 @@ window.__ModuleLoader__.load({
           updateReadme: Boolean(config.updateReadme),
           repository: config.repository || '',
           branch: config.branch || defaultBranch,
+          branchBase: config.branchBase || '',
         }
         : null)
 
       useEffect(() => {
         void store.ensureSession(sessionId)
       }, [store, sessionId])
+
+      const loadBranches = async (repositoryOverride) => {
+        setBranchState((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const payload = { sessionId }
+          if (typeof repositoryOverride === 'string') payload.repository = repositoryOverride
+          const data = await store.loadBranches(payload)
+          setBranchState({
+            loading: false,
+            branches: Array.isArray(data.branches) ? data.branches : [],
+            current: data.current || '',
+            defaultBranch: data.defaultBranch || '',
+            warning: data.warning || null,
+            error: null,
+          })
+        } catch (loadError) {
+          setBranchState((current) => ({
+            ...current,
+            loading: false,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          }))
+        }
+      }
+
+      useEffect(() => {
+        void loadBranches()
+      }, [sessionId])
 
       useEffect(() => {
         if (config !== undefined && !seeded) {
@@ -960,11 +1440,13 @@ window.__ModuleLoader__.load({
             updateReadme: Boolean(config.updateReadme),
             repository: config.repository || '',
             branch: config.branch || defaultBranch,
+            branchBase: config.branchBase || '',
           }
           setEnabled(values.enabled)
           setUpdateReadme(values.updateReadme)
           setRepository(values.repository)
           setBranch(values.branch)
+          setBranchBase(values.branchBase)
           initial.current = values
           setSeeded(true)
         }
@@ -984,6 +1466,7 @@ window.__ModuleLoader__.load({
         || updateReadme !== initial.current.updateReadme
         || repository !== initial.current.repository
         || branch !== initial.current.branch
+        || branchBase !== initial.current.branchBase
       )
 
       const persist = async (values, skipRepoCheck) => {
@@ -1020,6 +1503,7 @@ window.__ModuleLoader__.load({
           updateReadme,
           repository: repository.trim(),
           branch: branch.trim() || defaultBranch,
+          branchBase,
         }, false)
       }
 
@@ -1082,20 +1566,35 @@ window.__ModuleLoader__.load({
                 spellCheck: false,
                 onChange: (event) => setRepository(event.target.value),
               })),
-              h(Field, { label: t('session.branch') }, h('input', {
-                className: 'dsh-git-input',
-                'aria-label': t('session.branch'),
+              h(BranchSelect, {
+                label: t('session.branch'),
                 value: branch,
-                placeholder: defaultBranch,
-                spellCheck: false,
-                onChange: (event) => setBranch(event.target.value),
-              })),
+                base: branchBase,
+                catalog: branchState,
+                onReload: () => { void loadBranches(repository.trim()) },
+                onChange: ({ name, base }) => {
+                  setBranch(name)
+                  setBranchBase(base || '')
+                },
+                t,
+              }),
               h('div', { className: 'dsh-git-switchrow' },
                 h('div', { className: 'dsh-git-switchtext' },
                   h('div', { className: 'dsh-git-switchtitle' }, t('session.updateReadme')),
                   h('div', { className: 'dsh-git-hint' }, t('session.updateReadmeHint')),
                 ),
                 h(Switch, { checked: updateReadme, onChange: setUpdateReadme, label: t('session.updateReadme') }),
+              ),
+              h('div', { className: 'dsh-git-section' },
+                h('div', { className: 'dsh-git-section-title' }, t('rollback.section')),
+                h('div', { className: 'dsh-git-hint' }, t('rollback.sectionHint')),
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-git-btn',
+                  style: { marginTop: 8 },
+                  disabled: saving,
+                  onClick: () => setRollbackOpen(true),
+                }, t('rollback.open')),
               ),
               workspace
                 ? h('div', { className: 'dsh-git-hint' }, t('session.workspaceHint', { name: workspace.title }))
@@ -1128,13 +1627,21 @@ window.__ModuleLoader__.load({
           onSaveAnyway: () => {
             const target = missingRepo
             setMissingRepo(null)
-            void persist({ enabled, updateReadme, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+            void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
           },
           onCreated: (repo) => {
             const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
             setMissingRepo(null)
-            void persist({ enabled, updateReadme, repository: url, branch: branch.trim() || defaultBranch }, true)
+            void persist({ enabled, updateReadme, branchBase, repository: url, branch: branch.trim() || defaultBranch }, true)
           },
+        })
+        : null,
+      rollbackOpen
+        ? h(RollbackDialog, {
+          sessionId,
+          store,
+          t,
+          onClose: () => setRollbackOpen(false),
         })
         : null,
       )
@@ -1660,6 +2167,14 @@ window.__ModuleLoader__.load({
       const [updateReadme, setUpdateReadme] = useState(Boolean(config && config.updateReadme))
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
+      const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
+      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null })
+      const [mergeSource, setMergeSource] = useState('')
+      const [rebaseOnto, setRebaseOnto] = useState('')
+      const [pushAfter, setPushAfter] = useState(true)
+      const [opBusy, setOpBusy] = useState(false)
+      const [opError, setOpError] = useState(null)
+      const [opResult, setOpResult] = useState(null)
       const [seeded, setSeeded] = useState(Boolean(config))
       const [saving, setSaving] = useState(false)
       const [error, setError] = useState(null)
@@ -1674,12 +2189,64 @@ window.__ModuleLoader__.load({
           updateReadme: Boolean(config.updateReadme),
           repository: config.repository || '',
           branch: config.branch || defaultBranch,
+          branchBase: config.branchBase || '',
         }
         : null)
 
       useEffect(() => {
         if (!snap.loaded) void store.refresh()
       }, [snap.loaded, store])
+
+      const loadBranches = async (repositoryOverride) => {
+        setBranchState((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const payload = { workspaceId }
+          if (typeof repositoryOverride === 'string') payload.repository = repositoryOverride
+          const data = await store.loadBranches(payload)
+          setBranchState({
+            loading: false,
+            branches: Array.isArray(data.branches) ? data.branches : [],
+            current: data.current || '',
+            defaultBranch: data.defaultBranch || '',
+            warning: data.warning || null,
+            error: null,
+          })
+        } catch (loadError) {
+          setBranchState((current) => ({
+            ...current,
+            loading: false,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          }))
+        }
+      }
+
+      useEffect(() => {
+        void loadBranches()
+      }, [workspaceId])
+
+      useEffect(() => {
+        const options = branchState.branches.filter((entry) => entry.name !== branchState.current)
+        if (mergeSource === '' && options.length > 0) setMergeSource(options[0].name)
+        if (rebaseOnto === '' && options.length > 0) setRebaseOnto(options[0].name)
+      }, [branchState, mergeSource, rebaseOnto])
+
+      const runBranchOp = async (kind) => {
+        setOpBusy(true)
+        setOpError(null)
+        setOpResult(null)
+        try {
+          const data = kind === 'merge'
+            ? await store.mergeBranch({ workspaceId, source: mergeSource, push: pushAfter })
+            : await store.rebaseBranch({ workspaceId, onto: rebaseOnto, push: pushAfter })
+          setOpResult({ kind, data })
+          await loadBranches(repository.trim())
+          void store.refresh()
+        } catch (submitError) {
+          setOpError(submitError && submitError.message ? submitError.message : String(submitError))
+        } finally {
+          setOpBusy(false)
+        }
+      }
 
       useEffect(() => {
         if (workspace && !seeded) {
@@ -1688,11 +2255,13 @@ window.__ModuleLoader__.load({
             updateReadme: Boolean(config && config.updateReadme),
             repository: config && config.repository ? config.repository : '',
             branch: config && config.branch ? config.branch : defaultBranch,
+            branchBase: config && config.branchBase ? config.branchBase : '',
           }
           setEnabled(values.enabled)
           setUpdateReadme(values.updateReadme)
           setRepository(values.repository)
           setBranch(values.branch)
+          setBranchBase(values.branchBase)
           initial.current = values
           setSeeded(true)
         }
@@ -1712,6 +2281,7 @@ window.__ModuleLoader__.load({
         || updateReadme !== initial.current.updateReadme
         || repository !== initial.current.repository
         || branch !== initial.current.branch
+        || branchBase !== initial.current.branchBase
       )
 
       const persist = async (values, skipRepoCheck) => {
@@ -1750,6 +2320,7 @@ window.__ModuleLoader__.load({
           updateReadme,
           repository: repository.trim(),
           branch: branch.trim() || defaultBranch,
+          branchBase,
         }, false)
       }
 
@@ -1766,6 +2337,23 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const opView = opResult === null
+        ? null
+        : opResult.data.status === 'up-to-date'
+          ? { tone: 'warn', text: t('workspace.upToDate'), extra: '' }
+          : {
+            tone: opResult.data.pushError ? 'warn' : 'success',
+            text: opResult.kind === 'merge'
+              ? t('workspace.mergeDone', { source: opResult.data.source, result: String(opResult.data.after || '').slice(0, 7) })
+              : t('workspace.rebaseDone', { onto: opResult.data.onto, result: String(opResult.data.after || '').slice(0, 7) }),
+            extra: opResult.data.pushError
+              ? t('workspace.pushFailed', { error: opResult.data.pushError })
+              : opResult.data.pushSkipped
+                ? t('workspace.pushSkipped')
+                : opResult.data.pushed
+                  ? t('toast.pushed', { repo: repoLabel(opResult.data.repository || repository) })
+                  : '',
+          }
       const title = displayTitle && displayTitle !== '' ? displayTitle : (workspace ? workspace.title : t('workspace.dialogTitle'))
       const loading = !ready && loadError === null
 
@@ -1802,20 +2390,75 @@ window.__ModuleLoader__.load({
                   spellCheck: false,
                   onChange: (event) => setRepository(event.target.value),
                 })),
-                h(Field, { label: t('workspace.branch') }, h('input', {
-                  className: 'dsh-git-input',
-                  'aria-label': t('workspace.branch'),
+                h(BranchSelect, {
+                  label: t('workspace.branch'),
                   value: branch,
-                  placeholder: defaultBranch,
-                  spellCheck: false,
-                  onChange: (event) => setBranch(event.target.value),
-                })),
+                  base: branchBase,
+                  catalog: branchState,
+                  onReload: () => { void loadBranches(repository.trim()) },
+                  onChange: ({ name, base }) => {
+                    setBranch(name)
+                    setBranchBase(base || '')
+                  },
+                  t,
+                }),
                 h('div', { className: 'dsh-git-switchrow' },
                   h('div', { className: 'dsh-git-switchtext' },
                     h('div', { className: 'dsh-git-switchtitle' }, t('workspace.updateReadme')),
                     h('div', { className: 'dsh-git-hint' }, t('workspace.updateReadmeHint')),
                   ),
                   h(Switch, { checked: updateReadme, onChange: setUpdateReadme, label: t('workspace.updateReadme') }),
+                ),
+                h('div', { className: 'dsh-git-section' },
+                  h('div', { className: 'dsh-git-section-title' }, t('workspace.branchOps')),
+                  h('div', { className: 'dsh-git-hint' }, t('workspace.branchOpsHint', {
+                    current: branchState.current || t('branch.unknown'),
+                  })),
+                  h(Field, { label: t('workspace.mergeSource') }, h('select', {
+                    className: 'dsh-git-select',
+                    'aria-label': t('workspace.mergeSource'),
+                    value: mergeSource,
+                    disabled: opBusy || branchState.loading,
+                    onChange: (event) => setMergeSource(event.target.value),
+                  },
+                  h('option', { value: '' }, t('branch.none')),
+                  branchState.branches.filter((entry) => entry.name !== branchState.current).map((entry) => h('option', { key: entry.name, value: entry.name }, entry.name)),
+                  )),
+                  h('button', {
+                    type: 'button',
+                    className: 'dsh-git-btn',
+                    disabled: opBusy || mergeSource === '',
+                    onClick: () => { void runBranchOp('merge') },
+                  }, opBusy ? t('workspace.opWorking') : t('workspace.merge')),
+                  h(Field, { label: t('workspace.rebaseOnto') }, h('select', {
+                    className: 'dsh-git-select',
+                    'aria-label': t('workspace.rebaseOnto'),
+                    value: rebaseOnto,
+                    disabled: opBusy || branchState.loading,
+                    onChange: (event) => setRebaseOnto(event.target.value),
+                  },
+                  h('option', { value: '' }, t('branch.none')),
+                  branchState.branches.filter((entry) => entry.name !== branchState.current).map((entry) => h('option', { key: entry.name, value: entry.name }, entry.name)),
+                  )),
+                  h('button', {
+                    type: 'button',
+                    className: 'dsh-git-btn',
+                    disabled: opBusy || rebaseOnto === '',
+                    onClick: () => { void runBranchOp('rebase') },
+                  }, opBusy ? t('workspace.opWorking') : t('workspace.rebase')),
+                  h('label', { className: 'dsh-git-checkrow', style: { marginTop: 8 } },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: pushAfter,
+                      onChange: (event) => setPushAfter(event.target.checked),
+                    }),
+                    h('span', null, t('workspace.pushAfter')),
+                  ),
+                  opResult ? h('div', { className: 'dsh-git-opresult', 'data-tone': opView.tone },
+                    opView.text,
+                    opView.extra ? h('div', null, opView.extra) : null,
+                  ) : null,
+                  opError ? h('div', { className: 'dsh-git-error', style: { marginTop: 8 } }, opError) : null,
                 ),
                 workspace ? h('div', { className: 'dsh-git-hint' }, workspace.path) : null,
                 h('div', { className: 'dsh-git-hint' }, t('workspace.dialogSub')),
@@ -1844,12 +2487,12 @@ window.__ModuleLoader__.load({
             onSaveAnyway: () => {
               const target = missingRepo
               setMissingRepo(null)
-              void persist({ enabled, updateReadme, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+              void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
             },
             onCreated: (repo) => {
               const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
               setMissingRepo(null)
-              void persist({ enabled, updateReadme, repository: url, branch: branch.trim() || defaultBranch }, true)
+              void persist({ enabled, updateReadme, branchBase, repository: url, branch: branch.trim() || defaultBranch }, true)
             },
           })
           : null,
@@ -2048,6 +2691,10 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dsh-git-k' }, t('confirm.branch')),
             h('div', { className: 'dsh-git-v' }, pending.branch || 'main'),
           ),
+          pending.branchBase ? h('div', { className: 'dsh-git-hint' }, t('confirm.branchBase', {
+            base: pending.branchBase,
+            branch: pending.branch || 'main',
+          })) : null,
           h('div', { className: 'dsh-git-label', style: { marginBottom: 4 } }, t('confirm.files', { n: pending.fileCount || files.length })),
           h('div', { className: 'dsh-git-filebox' },
             files.slice(0, 40).map((file) => h('div', { key: file, title: file }, file)),

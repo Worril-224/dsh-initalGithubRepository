@@ -151,6 +151,15 @@ for (const [locale, table] of Object.entries(localeTables)) {
     'workspace.updateReadme',
     'toast.readmeUpdated',
     'toast.readmeWarning',
+    'branch.newOption',
+    'branch.createTitle',
+    'workspace.branchOps',
+    'workspace.merge',
+    'workspace.rebase',
+    'rollback.open',
+    'rollback.submit',
+    'confirm.branchBase',
+    'branch.createdHint',
   ]) {
     assert.equal(typeof table[key], 'string', `${locale} has ${key}`)
     assert.ok(table[key].length > 0, `${locale} ${key} is not empty`)

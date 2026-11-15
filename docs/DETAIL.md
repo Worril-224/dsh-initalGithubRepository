@@ -4,8 +4,8 @@ Commit and push a session's code changes after every completed turn, with a comm
 
 ## What it adds
 
-- **Session row button and menu entry** — every Session row in the left sidebar gets a small git button on hover, and the same action appears in the Session's `…` menu (useful on touch devices and when the sidebar is narrow). It opens the per-session settings: enable auto-commit, repository, branch, and the **Also update README with AI** switch. The feature is **off by default**; nothing is committed until the session is configured and enabled. An enabled Session also shows a small branch marker at rest in the row's trailing area, and a warning-colored marker while a commit is waiting for confirmation.
-- **Workspace settings in the workspace `…` menu** — a workspace's default repository and README-update switch are configured from its own row menu (`Git auto-commit…`), with the same enabled / repository / branch / README controls. This DSH version exposes no workspace-row hover action seat, so the workspace `…` menu is the additive placement. A workspace default is a **template for sessions created afterwards**; editing it does not change existing sessions. It is off by default.
+- **Session row button and menu entry** — every Session row in the left sidebar gets a small git button on hover, and the same action appears in the Session's `…` menu (useful on touch devices and when the sidebar is narrow). It opens the per-session settings: enable auto-commit, repository, a **branch dropdown built from the repository's actual branches**, the **Also update README with AI** switch, and a **Version rollback** section. The feature is **off by default**; nothing is committed until the session is configured and enabled. An enabled Session also shows a small branch marker at rest in the row's trailing area, and a warning-colored marker while a commit is waiting for confirmation.
+- **Workspace settings in the workspace `…` menu** — a workspace's default repository, branch, README-update switch, and **merge / rebase branch operations** are configured from its own row menu (`Git auto-commit…`). This DSH version exposes no workspace-row hover action seat, so the workspace `…` menu is the additive placement. A workspace default is a **template for sessions created afterwards**; editing it does not change existing sessions. It is off by default.
 - **Git settings entry at the top of the sidebar** — a button beside **New session** opens the global settings:
   - default commit user name and email;
   - a private GitHub token (used for HTTPS pushes, stored in the DSH credential store, never written to the repository);
@@ -30,10 +30,30 @@ Commit and push a session's code changes after every completed turn, with a comm
 1. A turn ends with the `completed` reason.
 2. The plugin resolves the session repository (session override first, then the workspace default copied when the session was created) and expands a short name with the current GitHub prefix.
 3. It ensures the session workspace is a git repository and asks the model for a commit message.
-4. If the session (or its workspace template) enables README updates, the same model updates the root README before anything is staged.
-5. It stages all changes (`git add -A`) and commits with the configured name/email, then pushes `HEAD` to the configured branch through the repository URL or local path. The remote is also registered locally as `dsh-auto-commit`; an existing `origin` is never overwritten.
-6. If pushing fails, the commit stays local and the notice shows the git error.
-7. If the remote rejects the push because it has newer history (`fetch first` / non-fast-forward), the plugin fetches the configured branch, merges it with `--allow-unrelated-histories`, and retries the push once. A merge conflict aborts the merge and keeps the local commit, with a message asking for manual resolution.
+4. When the configured branch is a **new branch with a base**, the plugin fetches the base if needed, creates the branch from that commit, and checks it out (uncommitted changes are preserved when git can do so). A new branch is created at the first commit; a remote branch with the same name is rejected so an existing branch is not overwritten.
+5. If the session (or its workspace template) enables README updates, the same model updates the root README before anything is staged.
+6. It stages all changes (`git add -A`) and commits with the configured name/email, then pushes `HEAD` to the configured branch through the repository URL or local path. The remote is also registered locally as `dsh-auto-commit`; an existing `origin` is never overwritten.
+7. If pushing fails, the commit stays local and the notice shows the git error.
+8. If the remote rejects the push because it has newer history (`fetch first` / non-fast-forward), the plugin fetches the configured branch, merges it with `--allow-unrelated-histories`, and retries the push once. A merge conflict aborts the merge and keeps the local commit, with a message asking for manual resolution.
+
+## Branches, new branches, merge and rebase
+
+The branch field in Session and workspace settings is a dropdown, not free text. Opening the settings reads the branches that actually exist in the configured repository (local branches plus `refs/heads/*` from the remote) and lists the current and default branches first. The **＋ Create a new branch…** entry at the end opens a small dialog with a **Based on branch** selector and a new-branch name field. The branch is created and checked out by the next commit from the selected base; a remote branch with the same name is rejected so an existing branch is never overwritten. The base may be a remote-only branch; it is fetched on demand. If the branch list cannot be fetched, the dialog shows the error and a retry action, and the current configured value can still be saved.
+
+Selecting an existing branch changes the **push target** for subsequent commits. The plugin does not switch the local checkout for an existing branch; it pushes the current `HEAD` to that branch and uses the normal remote-merge recovery if the remote branch has diverged. Selecting a new branch does switch the checkout, because the commit must be based on the chosen base.
+
+The workspace dialog also contains **Branch operations**:
+
+- **Merge into current branch** — runs `git merge --no-edit` with the selected source branch (or its fetched commit) on the branch currently checked out in the workspace. Conflicts abort the merge and report the unmerged files.
+- **Rebase current branch** — runs `git rebase` onto the selected branch. Conflicts abort the rebase and leave the branch as it was.
+- Both operations require a clean working tree. Each has an optional **Push to the configured repository when done** checkbox. Push uses a normal (non-force) push; a rebase that rewrites already-pushed history may therefore report a push error with a force-push hint, while the local rebase result is kept.
+- The operation result (including the new commit and any push warning) is shown inline; the branch list refreshes afterwards.
+
+## Version rollback
+
+The Session dialog has a **Version rollback…** section. It opens a commit tree assembled from the session repository's local and fetched remote refs: graph connector rows plus clickable commit rows showing the short hash, subject, decorations (branches/HEAD), author, and date. The tree covers up to the 1,000 most recent commits and is refreshed on demand.
+
+Selecting a commit fills an editable rollback message. **Roll back to this version** makes the project content match the selected commit's tree, then creates a **new commit on the current branch whose parent is the current HEAD**. The selected version and all later commits remain in history, so the old state can still be inspected. A later file that was tracked is removed from the tree; the working tree is required to be clean before the operation. The rollback commit can be pushed with the normal branch target; a push failure leaves the commit local and reports the error. The graph is reloaded after a successful rollback so the new commit appears at the top.
 
 ## Background commits
 
@@ -71,7 +91,7 @@ A workspace default is a **template**, not a live link:
 
 ## Configuration and storage
 
-- Global, per-session, and per-workspace settings live in `$DSH_HOME/git-auto-commit/state.json`. Session and workspace records include the README-update switch.
+- Global, per-session, and per-workspace settings live in `$DSH_HOME/git-auto-commit/state.json`. Session and workspace records include the selected branch, its optional new-branch base, and the README-update switch.
 - The GitHub token lives in the DSH credential store under the `dsh-git-auto-commit/github-token` record. It is only read when pushing, checking a repository, creating a repository, or detecting the account.
 - The workspace is initialized as a git repository on first use if it is not already one. Existing parent repositories are not reused: the repository is created at the session working directory.
 
@@ -92,4 +112,9 @@ A workspace default is a **template**, not a live link:
 - Automatic recovery from a diverged remote creates a merge commit. If the remote and local trees conflict, the merge is aborted and the commit remains local; resolve the conflict manually and push.
 - A short repository name (without `owner/`) is accepted only when the default prefix contains an account path, such as `https://github.com/<login>/`.
 - The token is sent to git through an HTTP authorization header rather than a token-bearing URL, so it does not appear in the repository configuration, pushed history, or most error output.
+- The branch dropdown reads remote branches with the same token used for pushes. Without network access or a valid token, it still lists local branches and shows the remote-loading warning; the already-selected branch remains saveable.
+- An existing branch is a push target, not a checkout switch. If that remote branch has diverged, the normal non-fast-forward recovery may create a merge commit before pushing.
+- A new branch is created on the next commit, not at save time. Creating it can fail if checking out the base would overwrite uncommitted changes; commit or stash those changes first. A new-branch name that already exists on the remote is rejected.
+- Merge, rebase, and rollback refuse to run on a dirty working tree. Merge and rebase abort on conflicts and leave the branch as it was. They do not force-push; a rebase that rewrites published history must be force-pushed manually if desired.
+- Rollback restores the selected commit's **tree** as a new commit; it does not reset or delete history. The commit tree request fetches remote refs first and shows at most 1,000 commits. A rollback push is a normal push and can fail without discarding the local rollback commit.
 - The top-of-sidebar Git settings button is shown while the sidebar is expanded; the per-Session configuration remains available from the Session's `…` menu when it is collapsed.

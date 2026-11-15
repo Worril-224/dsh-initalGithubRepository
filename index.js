@@ -76,6 +76,7 @@ function normalizeRepoConfig(raw) {
     enabled: value.enabled === true,
     repository: typeof value.repository === 'string' ? value.repository.trim() : '',
     branch: typeof value.branch === 'string' && value.branch.trim() !== '' ? value.branch.trim() : '',
+    branchBase: typeof value.branchBase === 'string' ? value.branchBase.trim() : '',
     updateReadme: value.updateReadme === true,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : 0,
   }
@@ -585,12 +586,41 @@ async function runGit(args, cwd, extraEnv = {}) {
   }
 }
 
+function runGitInput(args, cwd, input, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = execFile('git', args, {
+      cwd,
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: GIT_TIMEOUT_MS,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+        ...extraEnv,
+      },
+    }, (error, stdout, stderr) => {
+      if (error !== null) {
+        const text = (typeof stderr === 'string' ? stderr.trim() : '') || (typeof stdout === 'string' ? stdout.trim() : '') || error.message || 'git command failed'
+        const wrapped = new Error(text)
+        wrapped.code = error.code
+        wrapped.gitArgs = args
+        wrapped.stderr = stderr
+        reject(wrapped)
+        return
+      }
+      resolve({ stdout, stderr })
+    })
+    if (child.stdin !== null && child.stdin !== undefined) child.stdin.end(input)
+  })
+}
+
 async function isRepoRoot(cwd) {
   try {
     const { stdout } = await runGit(['rev-parse', '--show-toplevel'], cwd)
     const top = stdout.trim()
     if (top === '') return false
-    return path.resolve(top) === path.resolve(cwd)
+    const [realTop, realCwd] = await Promise.all([fs.realpath(top), fs.realpath(cwd)])
+    return realTop === realCwd
   } catch {
     return false
   }
@@ -683,6 +713,32 @@ function splitCommitMessage(message) {
     subject: firstLine(text.slice(0, index), 100),
     body: text.slice(index + 1).trim(),
   }
+}
+
+function parseGitGraphLog(stdout) {
+  const lines = []
+  for (const raw of String(stdout || '').split('\n')) {
+    if (raw === '') continue
+    const match = raw.match(/([0-9a-f]{40})/)
+    if (match === null) {
+      lines.push({ type: 'graph', graph: raw })
+      continue
+    }
+    const graph = raw.slice(0, match.index)
+    const fields = raw.slice(match.index + 40).replace(/^\x1f/, '').split('\x1f')
+    lines.push({
+      type: 'commit',
+      graph,
+      hash: match[1],
+      parents: (fields[0] || '').split(' ').filter(Boolean),
+      short: fields[1] || match[1].slice(0, 7),
+      subject: fields[2] || '',
+      refs: fields[3] || '',
+      author: fields[4] || '',
+      date: fields[5] || '',
+    })
+  }
+  return lines
 }
 
 /* ------------------------------------------------------------------ */
@@ -805,6 +861,7 @@ export function apply(ctx) {
       enabled: config?.enabled === true,
       repository: expandRepository(config?.repository || '', state.global.githubPrefix),
       branch: resolveBranch(config),
+      branchBase: config?.branchBase || '',
       updateReadme: config?.updateReadme === true,
       source,
       workspaceId: workspace?.id,
@@ -839,6 +896,7 @@ export function apply(ctx) {
       enabled: workspaceConfig.enabled === true,
       repository: workspaceConfig.repository,
       branch: resolveBranch(workspaceConfig),
+      branchBase: workspaceConfig.branchBase || '',
       updateReadme: workspaceConfig.updateReadme === true,
       updatedAt: Date.now(),
       source: 'workspace',
@@ -860,6 +918,7 @@ export function apply(ctx) {
       enabled: config.enabled === true,
       repository: config.repository,
       branch: resolveBranch(config),
+      branchBase: config.branchBase || '',
       updateReadme: config.updateReadme === true,
       updatedAt: Date.now(),
       source: 'workspace',
@@ -875,6 +934,7 @@ export function apply(ctx) {
       turn: entry.turn,
       repository: entry.repository,
       branch: entry.branch,
+      branchBase: entry.branchBase || '',
       files: entry.files,
       fileCount: entry.fileCount,
       stat: entry.stat,
@@ -969,6 +1029,7 @@ export function apply(ctx) {
           enabled: config.enabled === true,
           repository: expandRepository(config.repository || '', state.global.githubPrefix),
           branch: resolveBranch(config),
+          branchBase: config.branchBase || '',
           updateReadme: config.updateReadme === true,
           source: config.source === 'workspace' ? 'workspace' : 'session',
         }
@@ -1123,14 +1184,20 @@ export function apply(ctx) {
       const previous = state.sessions[body.sessionId]
       const updateReadme = typeof body.updateReadme === 'boolean' ? body.updateReadme : previous?.updateReadme === true
       const branch = typeof body.branch === 'string' ? body.branch.trim() : ''
+      const branchBase = typeof body.branchBase === 'string' ? body.branchBase.trim() : (previous?.branchBase || '')
       if (enabled && repository === '') return fail('REPOSITORY_REQUIRED', 'Set a repository before enabling auto-commit')
       if (branch !== '' && !validBranch(branch)) return fail('BRANCH_INVALID', `Invalid branch name: ${branch}`)
+      if (branchBase !== '' && !validBranch(branchBase)) return fail('BRANCH_INVALID', `Invalid base branch name: ${branchBase}`)
+      if (branchBase !== '' && branchBase === (branch === '' ? state.global.defaultBranch : branch)) {
+        return fail('BRANCH_BASE_INVALID', 'The new branch and its base branch must be different')
+      }
       const check = await maybeCheckRepo(repository, enabled, body.skipRepoCheck === true)
       if (check.missing !== null) return fail('REPO_NOT_FOUND', 'The repository does not exist on GitHub', check.missing)
       state.sessions[body.sessionId] = {
         enabled,
         repository,
         branch: branch === '' ? state.global.defaultBranch : branch,
+        branchBase,
         updateReadme,
         updatedAt: Date.now(),
         source: 'session',
@@ -1169,8 +1236,13 @@ export function apply(ctx) {
       const previous = state.workspaces[body.workspaceId]
       const updateReadme = typeof body.updateReadme === 'boolean' ? body.updateReadme : previous?.updateReadme === true
       const branch = typeof body.branch === 'string' ? body.branch.trim() : ''
+      const branchBase = typeof body.branchBase === 'string' ? body.branchBase.trim() : (previous?.branchBase || '')
       if (enabled && repository === '') return fail('REPOSITORY_REQUIRED', 'A repository is required before enabling a workspace')
       if (branch !== '' && !validBranch(branch)) return fail('BRANCH_INVALID', `Invalid branch name: ${branch}`)
+      if (branchBase !== '' && !validBranch(branchBase)) return fail('BRANCH_INVALID', `Invalid base branch name: ${branchBase}`)
+      if (branchBase !== '' && branchBase === (branch === '' ? state.global.defaultBranch : branch)) {
+        return fail('BRANCH_BASE_INVALID', 'The new branch and its base branch must be different')
+      }
       if (!enabled && repository === '' && !updateReadme) {
         delete state.workspaces[body.workspaceId]
         await persist()
@@ -1182,6 +1254,7 @@ export function apply(ctx) {
         enabled,
         repository,
         branch: branch === '' ? state.global.defaultBranch : branch,
+        branchBase,
         updateReadme,
         updatedAt: Date.now(),
       }
@@ -1462,6 +1535,263 @@ export function apply(ctx) {
     }
   }
 
+  async function handleGitBranches(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      const project = await projectFromBody(body)
+      if (project === null) return fail('PROJECT_REQUIRED', 'sessionId or workspaceId is required')
+      let repository = project.repository
+      if (typeof body.repository === 'string') {
+        const raw = body.repository.trim()
+        repository = raw === '' ? '' : expandRepository(raw, state.global.githubPrefix)
+      }
+      const catalog = await branchCatalogFor(project.cwd, repository)
+      return ok({ ...catalog, repository })
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/branches failed:`, error)
+      return fail('GIT_BRANCHES_FAILED', error?.message || String(error))
+    }
+  }
+
+  async function handleGitGraph(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.sessionId !== 'string' || body.sessionId === '') return fail('SESSION_REQUIRED', 'sessionId is required')
+      const project = await projectForSession(body.sessionId)
+      if (project === null) return fail('SESSION_NOT_FOUND', 'This session is no longer available')
+      if (!(await isRepoRoot(project.cwd))) return fail('GIT_NOT_REPO', 'The session workspace is not a git repository yet')
+      let warning = null
+      if (project.repository !== '') {
+        try {
+          await fetchRemoteRefs(project.cwd, project.repository)
+        } catch (error) {
+          warning = `Could not fetch remote branches: ${error?.message || String(error)}`
+        }
+      }
+      const catalog = await branchCatalogFor(project.cwd, project.repository)
+      let currentCommit = ''
+      try {
+        currentCommit = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      } catch {
+        currentCommit = ''
+      }
+      let lines = []
+      try {
+        const { stdout } = await runGit([
+          'log', '--all', '--graph', '--no-color', '--date=short',
+          '--pretty=format:%H%x1f%P%x1f%h%x1f%s%x1f%d%x1f%an%x1f%ad',
+          '-n', '1000',
+        ], project.cwd)
+        lines = parseGitGraphLog(stdout)
+      } catch (error) {
+        const text = error?.message || String(error)
+        if (!/does not have any commits|bad default revision|unknown revision|ambiguous argument 'HEAD'/i.test(text)) throw error
+      }
+      return ok({
+        lines,
+        currentCommit,
+        current: catalog.current,
+        defaultBranch: catalog.defaultBranch,
+        branches: catalog.branches,
+        repository: project.repository,
+        warning: warning || catalog.warning,
+      })
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/graph failed:`, error)
+      return fail('GIT_GRAPH_FAILED', error?.message || String(error))
+    }
+  }
+
+  async function handleGitRollback(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.sessionId !== 'string' || body.sessionId === '') return fail('SESSION_REQUIRED', 'sessionId is required')
+      const project = await projectForSession(body.sessionId)
+      if (project === null) return fail('SESSION_NOT_FOUND', 'This session is no longer available')
+      if (!(await isRepoRoot(project.cwd))) return fail('GIT_NOT_REPO', 'The session workspace is not a git repository yet')
+      try {
+        await requireCleanWorktree(project.cwd)
+      } catch (error) {
+        return fail('WORKTREE_DIRTY', error.message, { files: error.files })
+      }
+      const selected = typeof body.commit === 'string' ? body.commit.trim() : ''
+      if (!/^[0-9a-f]{7,40}$/i.test(selected)) return fail('COMMIT_INVALID', 'Select a commit from the graph')
+      let resolved
+      try {
+        resolved = (await runGit(['rev-parse', '--verify', `${selected}^{commit}`], project.cwd)).stdout.trim()
+      } catch {
+        return fail('COMMIT_NOT_FOUND', 'That commit is not available in this repository')
+      }
+      const head = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      if (resolved === head) return fail('NO_CHANGES', 'The project already matches that commit')
+      const patch = (await runGit(['diff', '--binary', 'HEAD', resolved], project.cwd)).stdout
+      if (patch.trim() === '') return fail('NO_CHANGES', 'That commit has the same tree as HEAD')
+      try {
+        await runGitInput(['apply', '--index', '--whitespace=nowarn', '-'], project.cwd, patch)
+      } catch (error) {
+        try { await runGit(['reset', '--hard', 'HEAD'], project.cwd) } catch { /* best effort */ }
+        return fail('ROLLBACK_APPLY_FAILED', error?.message || String(error))
+      }
+      let selectedSubject = ''
+      try {
+        selectedSubject = (await runGit(['log', '-1', '--format=%s', resolved], project.cwd)).stdout.trim()
+      } catch {
+        selectedSubject = ''
+      }
+      const fallback = `revert: restore ${resolved.slice(0, 7)}${selectedSubject === '' ? '' : ` ${selectedSubject}`}`
+      const message = normalizeCommitMessage(
+        typeof body.message === 'string' && body.message.trim() !== '' ? body.message : fallback,
+      )
+      if (message === '') return fail('MESSAGE_REQUIRED', 'The rollback commit message cannot be empty')
+      const split = splitCommitMessage(message)
+      try {
+        await runGit([
+          ...commitAuthorArgs(),
+          'commit',
+          '-m', split.subject,
+          ...(split.body === '' ? [] : ['-m', split.body]),
+        ], project.cwd)
+      } catch (error) {
+        return fail('COMMIT_FAILED', error?.message || String(error))
+      }
+      const commit = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      const result = {
+        status: 'committed',
+        sessionId: body.sessionId,
+        repository: project.repository,
+        branch: project.branch,
+        commit,
+        subject: split.subject,
+        restoredFrom: resolved,
+        previousHead: head,
+      }
+      if (body.push !== false && project.repository !== '') {
+        try {
+          await pushRef(project.cwd, project.repository, `HEAD:${project.branch}`)
+          result.status = 'pushed'
+          result.pushed = true
+        } catch (error) {
+          result.status = 'push-failed'
+          result.pushed = false
+          result.error = error?.message || String(error)
+          result.recovery = `The rollback commit ${commit.slice(0, 12)} is local. Fix the remote/token and push it manually.`
+        }
+      }
+      return ok(result)
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/rollback failed:`, error)
+      return fail('GIT_ROLLBACK_FAILED', error?.message || String(error))
+    }
+  }
+
+  async function handleGitMerge(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.workspaceId !== 'string' || body.workspaceId === '') return fail('WORKSPACE_REQUIRED', 'workspaceId is required')
+      const project = await projectForWorkspace(body.workspaceId)
+      if (project === null) return fail('WORKSPACE_NOT_FOUND', 'This workspace no longer exists')
+      if (!(await isRepoRoot(project.cwd))) return fail('GIT_NOT_REPO', 'The workspace is not a git repository')
+      const source = typeof body.source === 'string' ? body.source.trim() : ''
+      if (source === '' || !validBranch(source)) return fail('BRANCH_INVALID', 'Choose a valid source branch')
+      try {
+        await requireCleanWorktree(project.cwd)
+      } catch (error) {
+        return fail('WORKTREE_DIRTY', error.message, { files: error.files })
+      }
+      const current = await currentBranchOf(project.cwd)
+      if (current === '') return fail('DETACHED_HEAD', 'Check out a branch before merging')
+      if (source === current) return fail('BRANCH_SAME', 'Choose a branch other than the current branch')
+      let sourceCommit
+      try {
+        sourceCommit = await resolveBranchCommit(project.cwd, project.repository, source)
+      } catch (error) {
+        return fail('BRANCH_NOT_FOUND', `Cannot resolve ${source}: ${error?.message || String(error)}`)
+      }
+      const before = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      try {
+        await runGit([
+          ...commitAuthorArgs(),
+          'merge', '--no-edit',
+          '-m', `merge: ${source} into ${current}`,
+          sourceCommit,
+        ], project.cwd)
+      } catch (error) {
+        const conflicts = await unmergedFiles(project.cwd)
+        try { await runGit(['merge', '--abort'], project.cwd) } catch { /* best effort */ }
+        return fail('MERGE_CONFLICT', error?.message || String(error), { files: conflicts })
+      }
+      const after = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      const result = {
+        status: before === after ? 'up-to-date' : 'merged',
+        repository: project.repository,
+        current,
+        source,
+        before,
+        after,
+        merged: before !== after,
+      }
+      await attachPushResult(result, project, current, body.push !== false)
+      return ok(result)
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/merge failed:`, error)
+      return fail('GIT_MERGE_FAILED', error?.message || String(error))
+    }
+  }
+
+  async function handleGitRebase(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.workspaceId !== 'string' || body.workspaceId === '') return fail('WORKSPACE_REQUIRED', 'workspaceId is required')
+      const project = await projectForWorkspace(body.workspaceId)
+      if (project === null) return fail('WORKSPACE_NOT_FOUND', 'This workspace no longer exists')
+      if (!(await isRepoRoot(project.cwd))) return fail('GIT_NOT_REPO', 'The workspace is not a git repository')
+      const onto = typeof body.onto === 'string' ? body.onto.trim() : ''
+      if (onto === '' || !validBranch(onto)) return fail('BRANCH_INVALID', 'Choose a valid target branch')
+      try {
+        await requireCleanWorktree(project.cwd)
+      } catch (error) {
+        return fail('WORKTREE_DIRTY', error.message, { files: error.files })
+      }
+      const current = await currentBranchOf(project.cwd)
+      if (current === '') return fail('DETACHED_HEAD', 'Check out a branch before rebasing')
+      if (onto === current) return fail('BRANCH_SAME', 'Choose a branch other than the current branch')
+      let ontoCommit
+      try {
+        ontoCommit = await resolveBranchCommit(project.cwd, project.repository, onto)
+      } catch (error) {
+        return fail('BRANCH_NOT_FOUND', `Cannot resolve ${onto}: ${error?.message || String(error)}`)
+      }
+      const before = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      try {
+        await runGit([...commitAuthorArgs(), 'rebase', ontoCommit], project.cwd)
+      } catch (error) {
+        const conflicts = await unmergedFiles(project.cwd)
+        try { await runGit(['rebase', '--abort'], project.cwd) } catch { /* best effort */ }
+        return fail('REBASE_CONFLICT', error?.message || String(error), { files: conflicts })
+      }
+      const after = (await runGit(['rev-parse', 'HEAD'], project.cwd)).stdout.trim()
+      const result = {
+        status: before === after ? 'up-to-date' : 'rebased',
+        repository: project.repository,
+        current,
+        onto,
+        before,
+        after,
+        rebased: before !== after,
+      }
+      await attachPushResult(result, project, current, body.push !== false)
+      return ok(result)
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/rebase failed:`, error)
+      return fail('GIT_REBASE_FAILED', error?.message || String(error))
+    }
+  }
+
   route('/state', handleState)
   route('/session-state', handleSessionState)
   route('/config', handleConfig)
@@ -1471,6 +1801,11 @@ export function apply(ctx) {
   route('/ai/models', handleAiModels)
   route('/ai/describe', handleDescribeProject)
   route('/pending', handlePending)
+  route('/git/branches', handleGitBranches)
+  route('/git/graph', handleGitGraph)
+  route('/git/rollback', handleGitRollback)
+  route('/git/merge', handleGitMerge)
+  route('/git/rebase', handleGitRebase)
 
   /* ---------------------------------------------------------------- */
   /* turn trigger                                                     */
@@ -1534,6 +1869,7 @@ export function apply(ctx) {
       cwd,
       repository: config.repository,
       branch: config.branch,
+      branchBase: config.branchBase || '',
       files: changes.files.slice(0, 200),
       fileCount: changes.files.length,
       stat: changes.stat,
@@ -1827,6 +2163,13 @@ export function apply(ctx) {
     const split = splitCommitMessage(message)
     if (split.subject === '') throw new Error('The commit message has no subject')
     await ensureRepoRoot(cwd, config.branch)
+    let preparedRemoteUrl = ''
+    let preparedToken
+    if (entry.branchBase) {
+      preparedRemoteUrl = await prepareRemote(cwd, config.repository)
+      preparedToken = await readToken()
+      await ensureNewBranch(cwd, preparedRemoteUrl, entry.branch, entry.branchBase, preparedToken)
+    }
     const readme = entry.updateReadme === true ? await generateReadmeUpdate(entry, message) : null
     const readmeResult = readmeFields(readme)
     await runGit(['add', '-A', '--', '.'], cwd)
@@ -1834,9 +2177,7 @@ export function apply(ctx) {
     if (status.stdout.trim() === '') {
       return { status: 'no-changes', sessionId: entry.sessionId, repository: config.repository, branch: config.branch, ...readmeResult }
     }
-    const authorArgs = []
-    if (state.global.userName.trim() !== '') authorArgs.push('-c', `user.name=${state.global.userName.trim()}`)
-    if (state.global.userEmail.trim() !== '') authorArgs.push('-c', `user.email=${state.global.userEmail.trim()}`)
+    const authorArgs = commitAuthorArgs()
     const commitArgs = [
       ...authorArgs,
       'commit',
@@ -1869,8 +2210,8 @@ export function apply(ctx) {
     }
     let rejected = false
     try {
-      const remoteUrl = await prepareRemote(cwd, config.repository)
-      const token = await readToken()
+      const remoteUrl = preparedRemoteUrl === '' ? await prepareRemote(cwd, config.repository) : preparedRemoteUrl
+      const token = preparedToken === undefined ? await readToken() : preparedToken
       const auth = pushEnvironment(remoteUrl, token)
       try {
         await runGit(['push', remoteUrl, `HEAD:${config.branch}`], cwd, auth)
@@ -1900,6 +2241,252 @@ export function apply(ctx) {
           : `The commit ${hash.slice(0, 12)} is local. Fix the remote/token and run: git push <remote> HEAD:${config.branch}`,
       }
     }
+  }
+
+  function commitAuthorArgs() {
+    const args = []
+    if (state.global.userName.trim() !== '') args.push('-c', `user.name=${state.global.userName.trim()}`)
+    if (state.global.userEmail.trim() !== '') args.push('-c', `user.email=${state.global.userEmail.trim()}`)
+    return args
+  }
+
+  async function projectForSession(sessionId) {
+    let header
+    try {
+      header = await sessionHeader(sessionId)
+    } catch {
+      header = undefined
+    }
+    if (header === undefined) return null
+    let cwd = header.cwd
+    const live = service('sessions')?.get(sessionId)
+    if (live !== undefined) {
+      try {
+        const value = service('workingDirectory')?.get(live)
+        if (typeof value === 'string' && value !== '') cwd = value
+      } catch {
+        // Fall back to the header cwd.
+      }
+    }
+    if (typeof cwd !== 'string' || cwd === '') return null
+    const config = await resolveSessionConfig(sessionId)
+    return { cwd, repository: config.repository, branch: config.branch, branchBase: config.branchBase || '', config }
+  }
+
+  async function projectForWorkspace(workspaceId) {
+    const registry = service('workspaceRegistry')
+    if (registry === undefined) return null
+    let workspace
+    try {
+      workspace = registry.get(workspaceId)
+    } catch {
+      workspace = undefined
+    }
+    if (workspace === undefined || typeof workspace.path !== 'string' || workspace.path === '') return null
+    const config = state.workspaces[workspaceId]
+    return {
+      cwd: workspace.path,
+      repository: config === undefined ? '' : expandRepository(config.repository || '', state.global.githubPrefix),
+      branch: resolveBranch(config),
+      branchBase: config?.branchBase || '',
+      config,
+      workspace,
+    }
+  }
+
+  async function projectFromBody(body) {
+    if (typeof body.sessionId === 'string' && body.sessionId !== '') return projectForSession(body.sessionId)
+    if (typeof body.workspaceId === 'string' && body.workspaceId !== '') return projectForWorkspace(body.workspaceId)
+    return null
+  }
+
+  async function currentBranchOf(cwd) {
+    try {
+      const name = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).stdout.trim()
+      return name === 'HEAD' ? '' : name
+    } catch {
+      return ''
+    }
+  }
+
+  async function requireCleanWorktree(cwd) {
+    const status = await runGit(['status', '--porcelain=v1', '-uall', '--', '.'], cwd)
+    const files = parseStatusFiles(status.stdout)
+    if (files.length === 0) return
+    const error = new Error(`The working tree has uncommitted changes: ${files.slice(0, 8).join(', ')}${files.length > 8 ? ', …' : ''}. Commit or stash them first.`)
+    error.files = files
+    throw error
+  }
+
+  async function unmergedFiles(cwd) {
+    try {
+      const { stdout } = await runGit(['diff', '--name-only', '--diff-filter=U'], cwd)
+      return stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  async function repoAuthEnv(repository) {
+    return pushEnvironment(repository, await readToken())
+  }
+
+  async function readRemoteBranches(repository, cwd) {
+    if (repository === '') return { names: [], defaultBranch: '', warning: null }
+    const env = await repoAuthEnv(repository)
+    let dir = typeof cwd === 'string' && cwd !== '' ? cwd : process.cwd()
+    try {
+      await fs.access(dir)
+    } catch {
+      dir = process.cwd()
+    }
+    try {
+      const { stdout } = await runGit(['ls-remote', '--heads', repository], dir, env)
+      const names = []
+      for (const line of stdout.split('\n')) {
+        const parts = line.trim().split(/\s+/)
+        const ref = parts[1]
+        if (ref !== undefined && ref.startsWith('refs/heads/')) names.push(ref.slice('refs/heads/'.length))
+      }
+      let defaultBranch = ''
+      try {
+        const sym = await runGit(['ls-remote', '--symref', repository, 'HEAD'], dir, env)
+        const match = sym.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)
+        if (match !== null) defaultBranch = match[1]
+      } catch {
+        // The remote HEAD is optional.
+      }
+      return { names: [...new Set(names)].sort(), defaultBranch, warning: null }
+    } catch (error) {
+      return { names: [], defaultBranch: '', warning: `Could not read remote branches: ${error?.message || String(error)}` }
+    }
+  }
+
+  async function branchCatalogFor(cwd, repository) {
+    const local = new Set()
+    let current = ''
+    let localWarning = null
+    if (typeof cwd === 'string' && cwd !== '') {
+      try {
+        if (await isRepoRoot(cwd)) {
+          const names = await runGit(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], cwd)
+          for (const line of names.stdout.split('\n')) {
+            const name = line.trim()
+            if (name !== '') local.add(name)
+          }
+          current = await currentBranchOf(cwd)
+        }
+      } catch (error) {
+        localWarning = `Could not read local branches: ${error?.message || String(error)}`
+      }
+    }
+    const remote = await readRemoteBranches(repository, cwd)
+    const map = new Map()
+    for (const name of local) map.set(name, { name, local: true, remote: false, current: name === current })
+    for (const name of remote.names) {
+      const entry = map.get(name)
+      if (entry !== undefined) entry.remote = true
+      else map.set(name, { name, local: false, remote: true, current: name === current })
+    }
+    if (current !== '' && !map.has(current)) map.set(current, { name: current, local: true, remote: false, current: true })
+    const defaultBranch = remote.defaultBranch || state.global.defaultBranch || ''
+    const branches = [...map.values()].sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1
+      const aDefault = a.name === defaultBranch
+      const bDefault = b.name === defaultBranch
+      if (aDefault !== bDefault) return aDefault ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    return { branches, current, defaultBranch, warning: remote.warning || localWarning }
+  }
+
+  async function fetchRemoteRefs(cwd, repository) {
+    if (repository === '') return null
+    const remoteUrl = await prepareRemote(cwd, repository)
+    const token = await readToken()
+    const env = pushEnvironment(remoteUrl, token)
+    await runGit(['fetch', remoteUrl, '+refs/heads/*:refs/remotes/dsh-auto-commit/*', '--prune'], cwd, env)
+    return remoteUrl
+  }
+
+  async function resolveBranchCommit(cwd, repository, branch, remoteUrlOverride) {
+    const name = String(branch || '').trim()
+    if (name === '') throw new Error('The base branch is required')
+    try {
+      const local = (await runGit(['rev-parse', '--verify', `refs/heads/${name}^{commit}`], cwd)).stdout.trim()
+      if (local !== '') return local
+    } catch {
+      // Fall through to the remote.
+    }
+    const remoteUrl = remoteUrlOverride || await prepareRemote(cwd, repository)
+    if (!remoteUrl) throw new Error(`Cannot resolve branch ${name}`)
+    const token = await readToken()
+    const env = pushEnvironment(remoteUrl, token)
+    await runGit(['fetch', remoteUrl, name], cwd, env)
+    return (await runGit(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], cwd)).stdout.trim()
+  }
+
+  async function pushRef(cwd, repository, refspec) {
+    const remoteUrl = await prepareRemote(cwd, repository)
+    const token = await readToken()
+    const env = pushEnvironment(remoteUrl, token)
+    await runGit(['push', remoteUrl, refspec], cwd, env)
+    return remoteUrl
+  }
+
+  async function attachPushResult(result, project, branch, shouldPush) {
+    if (shouldPush !== true) return
+    if (project.repository === '') {
+      result.pushSkipped = 'No repository is configured.'
+      return
+    }
+    try {
+      await pushRef(project.cwd, project.repository, `HEAD:${branch}`)
+      result.pushed = true
+    } catch (error) {
+      result.pushed = false
+      result.pushError = error?.message || String(error)
+      if (isNonFastForwardPush(error)) {
+        result.pushError += ' A force push is required for the rewritten history and was not performed automatically.'
+      }
+    }
+  }
+
+  async function ensureNewBranch(cwd, remoteUrl, branch, base, token) {
+    let exists = false
+    try {
+      await runGit(['show-ref', '--verify', `refs/heads/${branch}`], cwd)
+      exists = true
+    } catch {
+      exists = false
+    }
+    if (exists) {
+      try {
+        await runGit(['checkout', branch], cwd)
+      } catch (error) {
+        throw new Error(`Could not check out ${branch}: ${error?.message || String(error)}`)
+      }
+      return { status: 'existing' }
+    }
+    if (remoteUrl !== '') {
+      let remoteNames = []
+      try {
+        const { stdout } = await runGit(['ls-remote', '--heads', remoteUrl, branch], cwd, pushEnvironment(remoteUrl, token))
+        remoteNames = stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+      } catch {
+        remoteNames = []
+      }
+      if (remoteNames.length > 0) {
+        throw new Error(`A remote branch named ${branch} already exists. Select it from the branch list instead.`)
+      }
+    }
+    const baseCommit = base === '' ? '' : await resolveBranchCommit(cwd, '', base, remoteUrl)
+    try {
+      await runGit(baseCommit === '' ? ['checkout', '-b', branch] : ['checkout', '-b', branch, baseCommit], cwd)
+    } catch (error) {
+      throw new Error(`Could not create branch ${branch}${base === '' ? '' : ` from ${base}`}: ${error?.message || String(error)}`)
+    }
+    return { status: 'created', base: baseCommit }
   }
 
   async function prepareRemote(cwd, repository) {

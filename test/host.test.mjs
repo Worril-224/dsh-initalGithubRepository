@@ -19,11 +19,14 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-git-auto-commit-test-'
 const home = path.join(root, 'home')
 const workspace = path.join(root, 'workspace')
 const workspace2 = path.join(root, 'workspace2')
+const gitWorkspace = path.join(root, 'git-workspace')
+const gitRemote = path.join(root, 'git-remote.git')
 const remote = path.join(root, 'remote.git')
 const conflictRemote = path.join(root, 'conflict.git')
 const seed = path.join(root, 'seed')
 await fs.mkdir(workspace, { recursive: true })
 await fs.mkdir(workspace2, { recursive: true })
+await fs.mkdir(gitWorkspace, { recursive: true })
 await fs.mkdir(home, { recursive: true })
 await fs.mkdir(seed, { recursive: true })
 await fs.writeFile(path.join(workspace, 'app.js'), 'export const greeting = "hello"\n', 'utf8')
@@ -36,6 +39,14 @@ await execFileAsync('git', ['add', '-A'], { cwd: seed })
 await execFileAsync('git', ['-c', 'user.name=Seed', '-c', 'user.email=seed@example.com', 'commit', '-m', 'Initial commit'], { cwd: seed })
 await execFileAsync('git', ['remote', 'add', 'origin', conflictRemote], { cwd: seed })
 await execFileAsync('git', ['push', 'origin', 'main'], { cwd: seed })
+
+await fs.writeFile(path.join(gitWorkspace, 'README.md'), '# Git operations workspace\n', 'utf8')
+await execFileAsync('git', ['init', '-b', 'main'], { cwd: gitWorkspace })
+await execFileAsync('git', ['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'add', '-A'], { cwd: gitWorkspace })
+await execFileAsync('git', ['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', 'Initial commit'], { cwd: gitWorkspace })
+await execFileAsync('git', ['init', '--bare', gitRemote])
+await execFileAsync('git', ['remote', 'add', 'origin', gitRemote], { cwd: gitWorkspace })
+await execFileAsync('git', ['push', 'origin', 'main'], { cwd: gitWorkspace })
 
 process.env.DSH_HOME = home
 
@@ -207,6 +218,7 @@ const services = {
 
 workspaces.push({ id: 'ws-1', title: 'Test workspace', path: workspace, sessionIds: [] })
 workspaces.push({ id: 'ws-2', title: 'Second workspace', path: workspace2, sessionIds: [] })
+workspaces.push({ id: 'ws-git', title: 'Git operations', path: gitWorkspace, sessionIds: [] })
 apply(ctx)
 
 async function call(route, body) {
@@ -251,6 +263,10 @@ function makeSession(id, createdAt, fileEvents = [], cwd = workspace, workspaceI
 
 function emit(name, ...args) {
   for (const listener of listeners.get(name) || []) listener(...args)
+}
+
+function gitIn(args) {
+  return execFileAsync('git', ['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', ...args], { cwd: gitWorkspace })
 }
 
 let failures = 0
@@ -785,6 +801,174 @@ await test('a workspace README-only default reaches a new session but not an old
   assert.equal(resolved.config.updateReadme, true)
   assert.equal(resolved.config.enabled, false)
   assert.equal(resolved.config.repository, '')
+  assert.equal(resolved.config.source, 'workspace')
+})
+
+await test('the branch catalog lists local and remote branches', async () => {
+  const saved = await call('/workspace', {
+    workspaceId: 'ws-git',
+    enabled: true,
+    repository: gitRemote,
+    branch: 'main',
+  })
+  assert.equal(saved.ok, true)
+  const catalog = await call('/git/branches', { workspaceId: 'ws-git' })
+  assert.equal(catalog.ok, true)
+  assert.equal(catalog.current, 'main')
+  const main = catalog.branches.find((branch) => branch.name === 'main')
+  assert.ok(main)
+  assert.equal(main.local, true)
+  assert.equal(main.remote, true)
+  const bySession = await call('/git/branches', { workspaceId: 'ws-git', repository: gitRemote })
+  assert.ok(bySession.branches.some((branch) => branch.name === 'main'))
+})
+
+await test('a session stores and validates a new-branch base', async () => {
+  const session = makeSession('session-git-new', Date.now() + 30000, [], gitWorkspace, 2)
+  const invalid = await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: gitRemote,
+    branch: 'feature/one',
+    branchBase: 'feature/one',
+  })
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.error.code, 'BRANCH_BASE_INVALID')
+  const saved = await call('/session', {
+    sessionId: session.id,
+    enabled: true,
+    repository: gitRemote,
+    branch: 'feature/one',
+    branchBase: 'main',
+  })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.config.branchBase, 'main')
+  const resolved = await call('/session-state', { sessionId: session.id })
+  assert.equal(resolved.config.branchBase, 'main')
+})
+
+await test('a new branch is created from its base and committed', async () => {
+  const session = sessions.get('session-git-new')
+  await fs.writeFile(path.join(gitWorkspace, 'feature.txt'), 'feature one\n', 'utf8')
+  const mainCommit = (await gitIn(['rev-parse', 'main'])).stdout.trim()
+  emit('session/event', session, { type: 'turn/end', data: { turn: 10, reason: { kind: 'completed' } } })
+  const result = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === 'session-git-new' && item.status === 'pushed')
+  })
+  assert.equal(result.branch, 'feature/one')
+  const current = (await gitIn(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+  assert.equal(current, 'feature/one')
+  const parent = (await gitIn(['rev-parse', 'feature/one^'])).stdout.trim()
+  assert.equal(parent, mainCommit)
+  const remoteBranches = (await execFileAsync('git', ['--git-dir', gitRemote, 'branch', '--format=%(refname:short)'])).stdout
+  assert.match(remoteBranches, /feature\/one/)
+  const remoteTree = (await execFileAsync('git', ['--git-dir', gitRemote, 'ls-tree', '-r', '--name-only', 'feature/one'])).stdout
+  assert.match(remoteTree, /feature\.txt/)
+})
+
+await test('workspace merge combines a branch into the current branch', async () => {
+  const mainCommit = (await gitIn(['rev-parse', 'main'])).stdout.trim()
+  await gitIn(['checkout', '-b', 'feature/two', mainCommit])
+  await fs.writeFile(path.join(gitWorkspace, 'two.txt'), 'two\n', 'utf8')
+  await gitIn(['add', '-A'])
+  await gitIn(['commit', '-m', 'feat: branch two'])
+  await gitIn(['checkout', 'feature/one'])
+  const merged = await call('/git/merge', { workspaceId: 'ws-git', source: 'feature/two', push: true })
+  assert.equal(merged.ok, true)
+  assert.equal(merged.current, 'feature/one')
+  assert.equal(merged.merged, true)
+  assert.equal(merged.pushed, true)
+  assert.match(await fs.readFile(path.join(gitWorkspace, 'two.txt'), 'utf8'), /two/)
+  const parents = (await gitIn(['rev-list', '--parents', '-1', 'HEAD'])).stdout.trim().split(' ')
+  assert.ok(parents.length >= 3)
+  const message = (await gitIn(['log', '-1', '--format=%s'])).stdout.trim()
+  assert.match(message, /merge: feature\/two into feature\/one/)
+})
+
+await test('workspace rebase replays the current branch onto another branch', async () => {
+  const mainCommit = (await gitIn(['rev-parse', 'main'])).stdout.trim()
+  await gitIn(['checkout', '-b', 'feature/three', mainCommit])
+  await fs.writeFile(path.join(gitWorkspace, 'three.txt'), 'three\n', 'utf8')
+  await gitIn(['add', '-A'])
+  await gitIn(['commit', '-m', 'feat: branch three'])
+  const rebased = await call('/git/rebase', { workspaceId: 'ws-git', onto: 'feature/two', push: false })
+  assert.equal(rebased.ok, true)
+  assert.equal(rebased.current, 'feature/three')
+  assert.equal(rebased.rebased, true)
+  const parent = (await gitIn(['rev-parse', 'HEAD^'])).stdout.trim()
+  const twoTip = (await gitIn(['rev-parse', 'feature/two'])).stdout.trim()
+  assert.equal(parent, twoTip)
+  const log = (await gitIn(['log', '-5', '--format=%s'])).stdout
+  assert.match(log, /feat: branch three/)
+  assert.match(log, /feat: branch two/)
+  const tree = (await gitIn(['ls-tree', '-r', '--name-only', 'HEAD'])).stdout
+  assert.match(tree, /three\.txt/)
+  assert.match(tree, /two\.txt/)
+})
+
+await test('the commit graph includes commits and branches', async () => {
+  const graph = await call('/git/graph', { sessionId: 'session-git-new' })
+  assert.equal(graph.ok, true)
+  assert.ok(graph.lines.some((line) => line.type === 'commit'))
+  assert.equal(graph.current, 'feature/three')
+  for (const name of ['main', 'feature/one', 'feature/two', 'feature/three']) {
+    assert.ok(graph.branches.some((branch) => branch.name === name), `branch ${name} is listed`)
+  }
+  assert.ok(graph.lines.some((line) => line.type === 'commit' && line.refs.includes('feature/three')))
+})
+
+await test('merge is refused while the workspace has uncommitted changes', async () => {
+  await gitIn(['checkout', 'feature/one'])
+  await fs.writeFile(path.join(gitWorkspace, 'dirty.txt'), 'dirty\n', 'utf8')
+  const blocked = await call('/git/merge', { workspaceId: 'ws-git', source: 'feature/two', push: false })
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.error.code, 'WORKTREE_DIRTY')
+  await fs.rm(path.join(gitWorkspace, 'dirty.txt'))
+})
+
+await test('rollback restores a commit as a new commit without erasing history', async () => {
+  const mainCommit = (await gitIn(['rev-parse', 'main'])).stdout.trim()
+  const beforeHead = (await gitIn(['rev-parse', 'HEAD'])).stdout.trim()
+  const rolled = await call('/git/rollback', {
+    sessionId: 'session-git-new',
+    commit: mainCommit,
+    message: 'revert: restore initial layout',
+    push: false,
+  })
+  assert.equal(rolled.ok, true)
+  assert.equal(rolled.status, 'committed')
+  assert.notEqual(rolled.commit, beforeHead)
+  assert.equal(rolled.restoredFrom, mainCommit)
+  const parent = (await gitIn(['rev-parse', 'HEAD^'])).stdout.trim()
+  assert.equal(parent, beforeHead)
+  const diff = (await gitIn(['diff', '--name-only', 'HEAD', mainCommit])).stdout.trim()
+  assert.equal(diff, '')
+  const log = (await gitIn(['log', '--format=%H'])).stdout
+  assert.match(log, new RegExp(mainCommit))
+  const status = (await gitIn(['status', '--porcelain'])).stdout.trim()
+  assert.equal(status, '')
+  const files = await fs.readdir(gitWorkspace)
+  assert.ok(!files.includes('two.txt'))
+  assert.ok(!files.includes('three.txt'))
+  assert.ok(!files.includes('feature.txt'))
+})
+
+await test('a workspace branch and base are copied to a new session', async () => {
+  const saved = await call('/workspace', {
+    workspaceId: 'ws-git',
+    enabled: true,
+    repository: gitRemote,
+    branch: 'feature/ws-default',
+    branchBase: 'main',
+  })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.config.branch, 'feature/ws-default')
+  assert.equal(saved.config.branchBase, 'main')
+  const session = makeSession('session-git-ws-default', Date.now() + 40000, [], gitWorkspace, 2)
+  const resolved = await call('/session-state', { sessionId: session.id })
+  assert.equal(resolved.config.branch, 'feature/ws-default')
+  assert.equal(resolved.config.branchBase, 'main')
   assert.equal(resolved.config.source, 'workspace')
 })
 

@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Git auto-commit",
-    "description": "Commit and push each turn's changes to a selected branch; read branches and the commit tree from local Git first and fetch only when the remote differs, with new-branch creation, workspace merge/rebase, commit-tree rollback, and optional AI README updates.",
+    "description": "Commit and push each turn's changes to a selected branch; read branches and commit history locally and update only on remote changes; detect local/cloud drift and retry with the same manual commit flow after a failure, with new branches, merge/rebase, rollback, and AI README updates.",
     "detail": "docs/DETAIL.md"
   },
   "session": {

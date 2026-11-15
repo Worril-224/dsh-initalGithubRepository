@@ -173,6 +173,9 @@ window.__ModuleLoader__.load({
       'settings.saving': '保存中…',
       'settings.saved': '设置已保存',
       'settings.repoRequired': '工作区启用前需要填写仓库地址。',
+      'confirm.titleManual': '确认手动提交',
+      'confirm.subManual': '自动提交失败后的手动重试。模型已根据当前改动生成 commit 信息，你可以修改后再提交。',
+      'confirm.manualHint': '手动提交使用已保存的仓库和分支配置，流程与自动提交一致（包含 README 更新）。',
       'confirm.title': '确认本轮提交',
       'confirm.sub': '模型已根据本轮改动生成 commit 信息。你可以直接修改后再提交。',
       'confirm.session': '会话：{name}',
@@ -193,6 +196,32 @@ window.__ModuleLoader__.load({
       'confirm.workingHint': '提交和推送会在后台继续。隐藏本窗口不影响你继续使用 DSH，完成后右下角会提示结果。',
       'confirm.moreFiles': '还有 {n} 个文件未列出',
       'confirm.emptyMessage': 'Commit 信息不能为空。',
+      'sync.section': '版本同步',
+      'sync.sectionHint': '检测本地与云端版本；自动提交失败后可在这里手动重试。',
+      'sync.local': '本地版本',
+      'sync.remote': '云端版本',
+      'sync.branch': '分支',
+      'sync.aheadBehind': '领先 / 落后',
+      'sync.inSync': '本地与云端一致。',
+      'sync.outOfSync': '本地与云端不一致。',
+      'sync.remoteUnknown': '无法检测云端版本：{warning}',
+      'sync.repoMissing': 'Git 仓库尚未初始化；手动提交会先初始化仓库。',
+      'sync.pending': '已有提交等待确认。',
+      'sync.lastFailure': '上次自动提交失败（{status}）：{error}',
+      'sync.manual': '手动提交版本',
+      'sync.manualRetry': '重试提交',
+      'sync.working': '正在提交…',
+      'sync.proposed': '已生成手动提交确认窗口，请确认。',
+      'sync.pushed': '已推送本地提交到 {repo}。',
+      'sync.committed': '已在本地提交，但推送失败：{error}',
+      'sync.noChanges': '没有需要提交的改动。',
+      'sync.refresh': '刷新状态',
+      'sync.dirtyForm': '请先保存当前设置，再手动提交。',
+      'sync.clean': '工作区干净',
+      'sync.dirtyFiles': '{n} 个未提交文件',
+      'sync.ahead': '领先 {n}',
+      'sync.behind': '落后 {n}',
+      'sync.unknown': '未知',
       'rollback.section': '版本回退',
       'rollback.sectionHint': '查看提交树，把项目内容恢复到任意历史提交；新提交会接在当前分支后面，历史不会被覆盖。',
       'rollback.open': '版本回退…',
@@ -219,6 +248,7 @@ window.__ModuleLoader__.load({
       'rollback.close': '关闭',
       'rollback.restoreFrom': '恢复到 {short}',
       'toast.pushed': '已提交并推送到 {repo}',
+      'toast.pushedOnly': '已推送本地提交到 {repo}',
       'toast.pushedMerged': '已合并远程历史并推送到 {repo}',
       'toast.committed': '已提交（推送失败，提交保留在本地）',
       'toast.readmeUpdated': 'README 已由 AI 更新：{file}',
@@ -398,6 +428,9 @@ window.__ModuleLoader__.load({
       'settings.saving': 'Saving…',
       'settings.saved': 'Settings saved',
       'settings.repoRequired': 'A repository is required before enabling a workspace.',
+      'confirm.titleManual': 'Confirm manual commit',
+      'confirm.subManual': 'A manual retry after an automatic commit failure. The model wrote a message from the current changes; edit it before committing.',
+      'confirm.manualHint': 'The manual commit uses the saved repository and branch settings and follows the same flow as auto-commit, including README updates.',
       'confirm.title': 'Confirm this commit',
       'confirm.sub': 'The model wrote a commit message from this turn\'s changes. Edit it freely before committing.',
       'confirm.session': 'Session: {name}',
@@ -418,6 +451,32 @@ window.__ModuleLoader__.load({
       'confirm.workingHint': 'Commit and push continue in the background. Hiding this window does not stop them; the result appears in the lower-right corner when finished.',
       'confirm.moreFiles': '{n} more files not listed',
       'confirm.emptyMessage': 'The commit message cannot be empty.',
+      'sync.section': 'Version sync',
+      'sync.sectionHint': 'Compare the local and cloud versions; retry manually here after an automatic commit failure.',
+      'sync.local': 'Local version',
+      'sync.remote': 'Cloud version',
+      'sync.branch': 'Branch',
+      'sync.aheadBehind': 'Ahead / behind',
+      'sync.inSync': 'Local and cloud versions match.',
+      'sync.outOfSync': 'Local and cloud versions differ.',
+      'sync.remoteUnknown': 'Could not check the cloud version: {warning}',
+      'sync.repoMissing': 'The Git repository is not initialized yet; a manual commit will initialize it.',
+      'sync.pending': 'A commit proposal is already waiting for confirmation.',
+      'sync.lastFailure': 'The last automatic commit failed ({status}): {error}',
+      'sync.manual': 'Manual commit',
+      'sync.manualRetry': 'Retry commit',
+      'sync.working': 'Committing…',
+      'sync.proposed': 'A manual commit confirmation window is open.',
+      'sync.pushed': 'Pushed local commits to {repo}.',
+      'sync.committed': 'Committed locally, but the push failed: {error}',
+      'sync.noChanges': 'There are no changes to commit.',
+      'sync.refresh': 'Refresh status',
+      'sync.dirtyForm': 'Save the current settings before a manual commit.',
+      'sync.clean': 'Working tree is clean',
+      'sync.dirtyFiles': '{n} uncommitted files',
+      'sync.ahead': 'Ahead {n}',
+      'sync.behind': 'Behind {n}',
+      'sync.unknown': 'unknown',
       'rollback.section': 'Version rollback',
       'rollback.sectionHint': 'Inspect the commit tree and restore the project content to any earlier commit; a new commit is appended and history is preserved.',
       'rollback.open': 'Version rollback…',
@@ -444,6 +503,7 @@ window.__ModuleLoader__.load({
       'rollback.close': 'Close',
       'rollback.restoreFrom': 'Restore from {short}',
       'toast.pushed': 'Committed and pushed to {repo}',
+      'toast.pushedOnly': 'Pushed local commits to {repo}',
       'toast.pushedMerged': 'Merged remote history and pushed to {repo}',
       'toast.committed': 'Committed (push failed; the commit is kept locally)',
       'toast.readmeUpdated': 'README updated by AI: {file}',
@@ -855,6 +915,14 @@ window.__ModuleLoader__.load({
         return apiCall('git/rebase', payload, 180000)
       }
 
+      function gitSync(payload) {
+        return apiCall('git/sync', payload, 30000)
+      }
+
+      function manualCommit(payload) {
+        return apiCall('git/manual-commit', payload, 180000)
+      }
+
       function openWorkspaceDialog(workspaceId, displayTitle) {
         set({ workspaceDialog: { workspaceId, displayTitle: displayTitle || '' } })
         if (!snapshot.loaded) void refresh()
@@ -911,7 +979,7 @@ window.__ModuleLoader__.load({
         return snapshot
       }
 
-      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, loadBranches, loadGitGraph, rollbackVersion, mergeBranch, rebaseBranch, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
+      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, loadBranches, loadGitGraph, rollbackVersion, mergeBranch, rebaseBranch, gitSync, manualCommit, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
     }
 
     function useStore(store) {
@@ -1399,6 +1467,11 @@ window.__ModuleLoader__.load({
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
       const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null, updated: false, remoteChecked: false })
+      const [syncState, setSyncState] = useState({ loading: true, loaded: false, error: null })
+      const [manualBusy, setManualBusy] = useState(false)
+      const [manualNotice, setManualNotice] = useState(null)
+      const [manualError, setManualError] = useState(null)
+      const [manualResult, setManualResult] = useState(null)
       const [rollbackOpen, setRollbackOpen] = useState(false)
       const [seeded, setSeeded] = useState(Boolean(config))
       const [saving, setSaving] = useState(false)
@@ -1450,6 +1523,52 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         void loadBranches()
       }, [sessionId])
+
+      const loadSync = async () => {
+        setSyncState((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const data = await store.gitSync({ sessionId })
+          setSyncState({ loading: false, loaded: true, error: null, ...data })
+        } catch (loadError) {
+          setSyncState((current) => ({
+            ...current,
+            loading: false,
+            loaded: true,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          }))
+        }
+      }
+
+      useEffect(() => {
+        void loadSync()
+      }, [sessionId])
+
+      const latestResultId = snap.state && Array.isArray(snap.state.lastResults) && snap.state.lastResults.length > 0
+        ? snap.state.lastResults[0].id
+        : null
+      useEffect(() => {
+        if (syncState.loaded) void loadSync()
+      }, [latestResultId])
+
+      const runManualCommit = async () => {
+        setManualBusy(true)
+        setManualNotice(null)
+        setManualError(null)
+        setManualResult(null)
+        try {
+          const data = await store.manualCommit({
+            sessionId,
+            language: typeof store.localeId === 'function' ? store.localeId() : 'en',
+          })
+          if (data.mode === 'proposed') setManualNotice(t('sync.proposed'))
+          else if (data.result) setManualResult(data.result)
+          await loadSync()
+        } catch (submitError) {
+          setManualError(submitError && submitError.message ? submitError.message : String(submitError))
+        } finally {
+          setManualBusy(false)
+        }
+      }
 
       useEffect(() => {
         if (config !== undefined && !seeded) {
@@ -1539,6 +1658,44 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const syncLocalShort = String(syncState.localHead || '').slice(0, 7) || '—'
+      const syncRemoteShort = String(syncState.remoteHead || '').slice(0, 7) || '—'
+      const syncCounts = syncState.ahead === null || syncState.ahead === undefined || syncState.behind === null || syncState.behind === undefined
+        ? t('sync.unknown')
+        : `${t('sync.ahead', { n: syncState.ahead })} / ${t('sync.behind', { n: syncState.behind })}`
+      const syncLastError = syncState.lastFailure
+        ? String(syncState.lastFailure.error || syncState.lastFailure.recovery || '').split('\n')[0].slice(0, 160)
+        : ''
+      const hasPending = Boolean(snap.state && Array.isArray(snap.state.pending) && snap.state.pending.some((item) => item.sessionId === sessionId))
+      const manualConfigReady = syncState.canManual === true || (repository.trim() !== '' && branch.trim() !== '')
+      const syncCanManual = manualConfigReady
+        && syncState.pending !== true
+        && !hasPending
+        && !dirty
+        && (syncState.outOfSync === true || syncState.lastFailure != null || syncState.remoteChecked !== true)
+      const syncCanManualOnError = manualConfigReady && !hasPending && !dirty
+      const syncResultText = manualResult === null
+        ? null
+        : manualResult.status === 'pushed'
+          ? {
+            tone: 'success',
+            text: manualResult.pushedOnly
+              ? t('sync.pushed', { repo: repoLabel(manualResult.repository || syncState.repository) })
+              : t('toast.pushed', { repo: repoLabel(manualResult.repository || syncState.repository) }),
+          }
+          : manualResult.status === 'push-failed'
+            ? {
+              tone: 'warn',
+              text: t('sync.committed', {
+                error: String(manualResult.error || '').split('\n')[0].slice(0, 160),
+              }),
+            }
+            : manualResult.status === 'no-changes'
+              ? { tone: 'warn', text: t('sync.noChanges') }
+              : {
+                tone: 'warn',
+                text: String(manualResult.error || manualResult.recovery || t('sync.committed', { error: '' })).split('\n')[0].slice(0, 160),
+              }
       const title = displayTitle && displayTitle !== '' ? displayTitle : t('session.untitled')
       const explicit = config !== undefined && config.source === 'session'
       const workspace = meta && meta.workspace
@@ -1602,6 +1759,68 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'dsh-git-hint' }, t('session.updateReadmeHint')),
                 ),
                 h(Switch, { checked: updateReadme, onChange: setUpdateReadme, label: t('session.updateReadme') }),
+              ),
+              h('div', { className: 'dsh-git-section' },
+                h('div', { className: 'dsh-git-graph-meta' },
+                  h('div', { className: 'dsh-git-section-title' }, t('sync.section')),
+                  h('button', {
+                    type: 'button',
+                    className: 'dsh-git-btn',
+                    disabled: syncState.loading || manualBusy,
+                    onClick: () => { void loadSync() },
+                  }, t('sync.refresh')),
+                ),
+                h('div', { className: 'dsh-git-hint' }, t('sync.sectionHint')),
+                syncState.loading
+                  ? h('div', { className: 'dsh-git-loading' }, t('common.loading'))
+                  : syncState.error
+                    ? h(React.Fragment, null,
+                      h('div', { className: 'dsh-git-warn' }, syncState.error),
+                      h('div', { className: 'dsh-git-hint' }, t('sync.remoteUnknown', { warning: syncState.error })),
+                      dirty ? h('div', { className: 'dsh-git-hint' }, t('sync.dirtyForm')) : null,
+                      syncCanManualOnError ? h('button', {
+                        type: 'button',
+                        className: 'dsh-git-btn dsh-git-btn-primary',
+                        style: { marginTop: 8 },
+                        disabled: manualBusy || saving,
+                        onClick: () => { void runManualCommit() },
+                      }, manualBusy ? t('sync.working') : t('sync.manual')) : null,
+                    )
+                    : h(React.Fragment, null,
+                      h('div', { className: 'dsh-git-kv', style: { marginTop: 8 } },
+                        h('div', { className: 'dsh-git-k' }, t('sync.local')),
+                        h('div', { className: 'dsh-git-v' }, syncLocalShort),
+                        h('div', { className: 'dsh-git-k' }, t('sync.remote')),
+                        h('div', { className: 'dsh-git-v' }, syncRemoteShort),
+                        h('div', { className: 'dsh-git-k' }, t('sync.branch')),
+                        h('div', { className: 'dsh-git-v' }, syncState.branch || branch),
+                        h('div', { className: 'dsh-git-k' }, t('sync.aheadBehind')),
+                        h('div', { className: 'dsh-git-v' }, syncCounts),
+                      ),
+                      !syncState.repo ? h('div', { className: 'dsh-git-warn' }, t('sync.repoMissing')) : null,
+                      syncState.dirty ? h('div', { className: 'dsh-git-warn' }, t('sync.dirtyFiles', { n: syncState.fileCount })) : null,
+                      syncState.inSync ? h('div', { className: 'dsh-git-success' }, t('sync.inSync')) : null,
+                      syncState.outOfSync ? h('div', { className: 'dsh-git-warn' }, t('sync.outOfSync')) : null,
+                      !syncState.remoteChecked ? h('div', { className: 'dsh-git-warn' }, t('sync.remoteUnknown', {
+                        warning: syncState.warning || t('sync.unknown'),
+                      })) : null,
+                      (syncState.pending || hasPending) ? h('div', { className: 'dsh-git-hint' }, t('sync.pending')) : null,
+                      syncState.lastFailure ? h('div', { className: 'dsh-git-warn' }, t('sync.lastFailure', {
+                        status: syncState.lastFailure.status,
+                        error: syncLastError,
+                      })) : null,
+                      dirty ? h('div', { className: 'dsh-git-hint' }, t('sync.dirtyForm')) : null,
+                      syncCanManual ? h('button', {
+                        type: 'button',
+                        className: 'dsh-git-btn dsh-git-btn-primary',
+                        style: { marginTop: 8 },
+                        disabled: manualBusy || saving,
+                        onClick: () => { void runManualCommit() },
+                      }, manualBusy ? t('sync.working') : t('sync.manual')) : null,
+                    ),
+                manualNotice ? h('div', { className: 'dsh-git-hint' }, manualNotice) : null,
+                syncResultText ? h('div', { className: 'dsh-git-opresult', 'data-tone': syncResultText.tone }, syncResultText.text) : null,
+                manualError ? h('div', { className: 'dsh-git-error', style: { marginTop: 8 } }, manualError) : null,
               ),
               h('div', { className: 'dsh-git-section' },
                 h('div', { className: 'dsh-git-section-title' }, t('rollback.section')),
@@ -2697,8 +2916,8 @@ window.__ModuleLoader__.load({
         }
       }
       return h(Modal, {
-        title: t('confirm.title'),
-        subtitle: t('confirm.sub'),
+        title: pending.manual ? t('confirm.titleManual') : t('confirm.title'),
+        subtitle: pending.manual ? t('confirm.subManual') : t('confirm.sub'),
         wide: true,
         onClose: busy || submitted ? hideWindow : undefined,
         closeLabel: t('confirm.hide'),
@@ -2721,6 +2940,7 @@ window.__ModuleLoader__.load({
             (pending.fileCount || 0) > 40 ? h('div', null, t('confirm.moreFiles', { n: (pending.fileCount || 0) - 40 })) : null,
           ),
           h('div', { className: 'dsh-git-hint' }, t('confirm.filesHint')),
+          pending.manual ? h('div', { className: 'dsh-git-hint', style: { marginTop: 4 } }, t('confirm.manualHint')) : null,
           pending.updateReadme ? h('div', { className: 'dsh-git-hint', style: { marginTop: 4 } }, t('confirm.readmeHint')) : null,
           h('div', { style: { height: 14 } }),
           h(Field, {
@@ -2775,7 +2995,7 @@ window.__ModuleLoader__.load({
         : result.readmeWarning ? t('toast.readmeWarning', { reason: String(result.readmeWarning) }) : ''
       const detail = [error, recovery, readmeDetail].filter(Boolean).join('\n')
       switch (result.status) {
-        case 'pushed': return { tone: 'success', title: result.mergedRemote ? t('toast.pushedMerged', { repo: repoLabel(result.repository) }) : t('toast.pushed', { repo: repoLabel(result.repository) }), detail }
+        case 'pushed': return { tone: 'success', title: result.pushedOnly ? t('toast.pushedOnly', { repo: repoLabel(result.repository) }) : result.mergedRemote ? t('toast.pushedMerged', { repo: repoLabel(result.repository) }) : t('toast.pushed', { repo: repoLabel(result.repository) }), detail }
         case 'committed': return { tone: 'warn', title: t('toast.committed'), detail }
         case 'push-failed': return { tone: 'warn', title: t('toast.pushFailedTitle'), detail }
         case 'commit-failed': return { tone: 'error', title: t('toast.commitFailed'), detail }

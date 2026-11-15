@@ -164,6 +164,10 @@ for (const [locale, table] of Object.entries(localeTables)) {
     'branch.localFresh',
     'rollback.remoteUpdated',
     'rollback.localFresh',
+    'sync.section',
+    'sync.manual',
+    'confirm.titleManual',
+    'toast.pushedOnly',
   ]) {
     assert.equal(typeof table[key], 'string', `${locale} has ${key}`)
     assert.ok(table[key].length > 0, `${locale} ${key} is not empty`)

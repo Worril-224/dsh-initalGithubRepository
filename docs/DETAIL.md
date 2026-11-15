@@ -24,6 +24,7 @@ Commit and push a session's code changes after every completed turn, with a comm
 - **AI commit messages** — the message is generated from the turn's user request, the agent's summary, the tool-touched files, and the git diff. It follows Conventional Commits (`feat(scope): subject`, then an optional body). If the model is unavailable, a deterministic `chore:` fallback is used.
 - **AI README updates** — independently switchable per session and per workspace (the workspace switch is a template for new sessions). Before committing, the plugin asks the same model that wrote the commit message to update the project README from the current README, commit message, changed files, and diff. It preserves the existing structure and language, returns the complete document, or answers `NO_CHANGE` when nothing needs updating. A root README (`README.md`, `README`, `.rst`, or similar) is updated; `README.md` is created if none exists. The updated README is committed together with the code. A model failure or an unhelpful/short rewrite is reported but never blocks the code commit.
 - **Notices** — successful pushes, local-only commits, failures, and README update results are shown as a short notice.
+- **Version sync and manual retry** — the Session dialog compares the local `HEAD` with the configured remote branch and shows whether they match, whether the working tree is dirty, and any last automatic failure. When they differ (or after a failure), a **Manual commit / retry** button runs the same commit flow as auto-commit: AI message, optional README update, confirmation window, commit/push, and remote reconciliation. If the tree is clean but local commits are unpushed, it retries the push directly instead of creating an empty commit.
 
 ## How a commit runs
 
@@ -54,6 +55,20 @@ The workspace dialog also contains **Branch operations**:
 The Session dialog has a **Version rollback…** section. It opens a commit tree assembled from **local Git refs first**; the Host then compares the local remote-tracking refs with `git ls-remote` and fetches only if the remote has moved. The tree shows graph connector rows plus clickable commit rows with the short hash, subject, decorations (branches/HEAD), author, and date; the dialog reports whether local data was used or remote refs were refreshed. The tree covers up to the 1,000 most recent commits and is refreshed on demand.
 
 Selecting a commit fills an editable rollback message. **Roll back to this version** makes the project content match the selected commit's tree, then creates a **new commit on the current branch whose parent is the current HEAD**. The selected version and all later commits remain in history, so the old state can still be inspected. A later file that was tracked is removed from the tree; the working tree is required to be clean before the operation. The rollback commit can be pushed with the normal branch target; a push failure leaves the commit local and reports the error. The graph is reloaded after a successful rollback so the new commit appears at the top.
+
+## Version sync and manual retry
+
+The Session dialog has a **Version sync** section. Opening it (and after each new commit result) reads the local `HEAD`, the working-tree status, and the remote head for the configured branch using a local-first, read-only check: the local state is read first, then a short `git ls-remote` comparison obtains the cloud head. The sync indicator does not fetch; branch and graph views perform that update when needed. It shows the local/cloud hashes, branch, ahead/behind counts when available, uncommitted-file count, and the latest failed automatic result for the session.
+
+A **Manual commit / retry** button is offered when the versions differ, the working tree is dirty, the repository is not initialized, the remote cannot be checked, or the latest automatic result failed. The button is hidden while a commit proposal is already pending, and it is disabled while the settings form has unsaved changes (the manual flow uses the saved repository/branch configuration).
+
+The manual flow is intentionally the same as the automatic one:
+
+- dirty working tree → inspect changes, generate an AI commit message, optionally update the README, show the normal confirmation window (when confirmation is on), then commit and push with the same branch-creation and remote-reconciliation logic;
+- clean working tree with local commits ahead of the remote → retry the push directly. If the push is rejected because the remote diverged, the same merge-and-retry recovery runs; a conflict leaves the local commits intact and reports the error;
+- a clean, in-sync tree shows no retry button.
+
+The confirmation window for a manual proposal is labeled **Confirm manual commit** and says it is a retry. The result is recorded like an automatic commit, so the normal success/failure notice and the next sync refresh see it.
 
 ## Background commits
 
@@ -117,4 +132,7 @@ A workspace default is a **template**, not a live link:
 - A new branch is created on the next commit, not at save time. Creating it can fail if checking out the base would overwrite uncommitted changes; commit or stash those changes first. A new-branch name that already exists on the remote is rejected.
 - Merge, rebase, and rollback refuse to run on a dirty working tree. Merge and rebase abort on conflicts and leave the branch as it was. They do not force-push; a rebase that rewrites published history must be force-pushed manually if desired.
 - Rollback restores the selected commit's **tree** as a new commit; it does not reset or delete history. The commit tree request fetches remote refs first and shows at most 1,000 commits. A rollback push is a normal push and can fail without discarding the local rollback commit.
+- Version sync reads the remote head each time the Session dialog opens and after a new commit result; the check is read-only and time-limited, and an unreachable remote leaves the local view in place with a warning. The manual button then remains available as a retry, even when the sync check itself fails.
+- A manual retry uses the saved repository/branch/README settings; save the settings form before retrying. A pending commit proposal must be resolved (confirm or skip) before another manual proposal can be created.
+- A push-only retry does not create a new commit or generate a message; it pushes the existing local commits. A dirty-tree retry goes through the normal commit and confirmation flow.
 - The top-of-sidebar Git settings button is shown while the sidebar is expanded; the per-Session configuration remains available from the Session's `…` menu when it is collapsed.

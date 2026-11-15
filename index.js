@@ -34,6 +34,7 @@ const MAX_DIFF_CHARS = 14000
 const GIT_TIMEOUT_MS = 180000
 const LLM_TIMEOUT_MS = 30000
 const README_LLM_TIMEOUT_MS = 45000
+const REMOTE_CHECK_TIMEOUT_MS = 15000
 const MAX_README_CHARS = 12000
 const MAX_README_OUTPUT_CHARS = 60000
 const README_CANDIDATES = ['README.md', 'readme.md', 'Readme.md', 'README.markdown', 'README', 'README.rst', 'readme.rst']
@@ -560,12 +561,12 @@ function pushEnvironment(url, token) {
   return env
 }
 
-async function runGit(args, cwd, extraEnv = {}) {
+async function runGit(args, cwd, extraEnv = {}, timeoutMs = GIT_TIMEOUT_MS) {
   try {
     const result = await execFileAsync('git', args, {
       cwd,
       maxBuffer: 32 * 1024 * 1024,
-      timeout: GIT_TIMEOUT_MS,
+      timeout: timeoutMs,
       env: {
         ...process.env,
         GIT_TERMINAL_PROMPT: '0',
@@ -939,6 +940,7 @@ export function apply(ctx) {
       fileCount: entry.fileCount,
       stat: entry.stat,
       message: entry.message,
+      manual: entry.manual === true,
       updateReadme: entry.updateReadme === true,
       createdAt: entry.createdAt,
       cwd: entry.cwd,
@@ -1795,6 +1797,265 @@ export function apply(ctx) {
     }
   }
 
+  async function sessionTitleFor(sessionId) {
+    try {
+      const query = service('sessionQuery')
+      if (typeof query?.readTitle === 'function') {
+        const snapshot = await query.readTitle(sessionId)
+        if (typeof snapshot?.title === 'string' && snapshot.title !== '') return snapshot.title
+      }
+    } catch {
+      // The title is decorative only.
+    }
+    return ''
+  }
+
+  async function syncStatusFor(project) {
+    const cwd = project.cwd
+    const branch = project.branch || state.global.defaultBranch || 'main'
+    const repository = project.repository
+    const result = {
+      sessionId: project.sessionId,
+      repository,
+      branch,
+      repo: false,
+      localHead: '',
+      remoteHead: null,
+      dirty: false,
+      files: [],
+      fileCount: 0,
+      ahead: null,
+      behind: null,
+      inSync: false,
+      outOfSync: false,
+      remoteChecked: false,
+      updated: false,
+      warning: null,
+      canManual: repository !== '' && branch !== '',
+      pending: false,
+      lastFailure: null,
+    }
+    if (typeof cwd === 'string' && cwd !== '') {
+      try {
+        result.repo = await isRepoRoot(cwd)
+      } catch {
+        result.repo = false
+      }
+      if (result.repo) {
+        try {
+          result.localHead = (await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim()
+        } catch {
+          result.localHead = ''
+        }
+        try {
+          const status = await runGit(['status', '--porcelain=v1', '-uall', '--', '.'], cwd)
+          result.files = parseStatusFiles(status.stdout).slice(0, 50)
+          result.fileCount = result.files.length
+          result.dirty = result.files.length > 0
+        } catch {
+          result.files = []
+          result.fileCount = 0
+          result.dirty = false
+        }
+      }
+    }
+    if (repository !== '') {
+      try {
+        // The sync indicator only needs the remote head. It deliberately does
+        // not fetch: branch/graph views perform the local-first update, while
+        // this check stays fast and read-only.
+        const snapshot = await readRemoteSnapshot(repository, cwd)
+        result.remoteChecked = snapshot.heads !== null
+        result.warning = snapshot.warning || null
+        if (snapshot.heads !== null) result.remoteHead = snapshot.heads.get(branch) || null
+      } catch (error) {
+        result.warning = `Could not check the remote branch: ${error?.message || String(error)}`
+      }
+    }
+    let different = false
+    if (result.remoteChecked) {
+      if (result.localHead === '') different = result.remoteHead !== null
+      else if (result.remoteHead === null) different = true
+      else different = result.localHead !== result.remoteHead
+    }
+    result.outOfSync = result.dirty || different || (!result.repo && result.canManual)
+    result.inSync = result.remoteChecked && !result.outOfSync && result.localHead !== '' && result.localHead === result.remoteHead
+    if (result.localHead !== '' && result.remoteHead !== null && result.repo) {
+      try {
+        await runGit(['cat-file', '-e', `${result.remoteHead}^{commit}`], cwd)
+        const count = await runGit(['rev-list', '--left-right', '--count', `${result.localHead}...${result.remoteHead}`], cwd)
+        const parts = count.stdout.trim().split(/\s+/).map((value) => Number(value))
+        if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+          result.ahead = parts[0]
+          result.behind = parts[1]
+        }
+      } catch {
+        // The remote commit is not available locally; counts stay unknown.
+      }
+    }
+    result.pending = [...pending.values()].some((entry) => entry.sessionId === project.sessionId)
+    const latest = state.lastResults.find((item) => item.sessionId === project.sessionId)
+    if (latest !== undefined && ['push-failed', 'commit-failed', 'error'].includes(latest.status)) {
+      result.lastFailure = {
+        status: latest.status,
+        time: latest.time,
+        error: latest.error || '',
+        recovery: latest.recovery || '',
+        commit: latest.commit || '',
+      }
+    }
+    return result
+  }
+
+  async function pushExistingCommits(project) {
+    const cwd = project.cwd
+    const branch = project.branch
+    const base = {
+      sessionId: project.sessionId,
+      repository: project.repository,
+      branch,
+      manual: true,
+      pushedOnly: true,
+      files: 0,
+    }
+    if (!(await isRepoRoot(cwd))) {
+      return { ...base, status: 'no-changes', pushed: false }
+    }
+    if (project.branchBase) {
+      const remoteUrl = await prepareRemote(cwd, project.repository)
+      const token = await readToken()
+      await ensureNewBranch(cwd, remoteUrl, branch, project.branchBase, token)
+    }
+    let head = ''
+    try {
+      head = (await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim()
+    } catch {
+      head = ''
+    }
+    if (head === '') return { ...base, status: 'no-changes', pushed: false }
+    const remoteUrl = await prepareRemote(cwd, project.repository)
+    const token = await readToken()
+    const env = pushEnvironment(remoteUrl, token)
+    try {
+      await runGit(['push', remoteUrl, `HEAD:${branch}`], cwd, env)
+      return { ...base, status: 'pushed', pushed: true, commit: head }
+    } catch (pushError) {
+      if (!isNonFastForwardPush(pushError)) {
+        return {
+          ...base,
+          status: 'push-failed',
+          pushed: false,
+          commit: head,
+          error: pushError?.message || String(pushError),
+          recovery: `The local commits remain. Fix the remote/token and retry the push.`,
+        }
+      }
+      try {
+        const mergeCommit = await reconcileRemote(cwd, remoteUrl, branch, token, commitAuthorArgs())
+        await runGit(['push', remoteUrl, `HEAD:${branch}`], cwd, env)
+        return {
+          ...base,
+          status: 'pushed',
+          pushed: true,
+          mergedRemote: true,
+          mergeCommit,
+          commit: mergeCommit,
+        }
+      } catch (mergeError) {
+        return {
+          ...base,
+          status: 'push-failed',
+          pushed: false,
+          commit: head,
+          error: mergeError?.message || String(mergeError),
+          recovery: `The local commits remain and the remote could not be reconciled automatically.`,
+        }
+      }
+    }
+  }
+
+  async function handleGitSync(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.sessionId !== 'string' || body.sessionId === '') return fail('SESSION_REQUIRED', 'sessionId is required')
+      const project = await projectForSession(body.sessionId)
+      if (project === null) return fail('SESSION_NOT_FOUND', 'This session is no longer available')
+      return ok(await syncStatusFor(project))
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/sync failed:`, error)
+      return fail('GIT_SYNC_FAILED', error?.message || String(error))
+    }
+  }
+
+  async function handleGitManualCommit(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      if (typeof body.sessionId !== 'string' || body.sessionId === '') return fail('SESSION_REQUIRED', 'sessionId is required')
+      const project = await projectForSession(body.sessionId)
+      if (project === null) return fail('SESSION_NOT_FOUND', 'This session is no longer available')
+      if (project.repository === '' || project.branch === '') {
+        return fail('REPOSITORY_REQUIRED', 'Set a repository and branch before a manual commit')
+      }
+      if ([...pending.values()].some((entry) => entry.sessionId === project.sessionId)) {
+        return fail('PENDING_EXISTS', 'A commit proposal is already waiting for confirmation')
+      }
+      const changes = await inspectChanges(project.cwd, project.branch)
+      if (changes.files.length === 0) {
+        const result = await pushExistingCommits(project)
+        recordResult(result)
+        return ok({ mode: 'push', status: result.status, result })
+      }
+      const session = project.session ?? service('sessions')?.get(project.sessionId) ?? null
+      const ai = commitAiSelection(session)
+      const context = {
+        turn: 0,
+        manual: true,
+        language: body.language === 'zh' ? 'zh' : body.language === 'en' ? 'en' : undefined,
+        userRequest: '',
+        assistantSummary: '',
+        touched: [],
+        files: changes.files,
+        stat: changes.stat,
+        diff: changes.diff,
+        untrackedSamples: changes.untrackedSamples,
+        toolNames: [],
+        sessionTitle: await sessionTitleFor(project.sessionId),
+      }
+      const message = await generateCommitMessage(session, context, ai)
+      const entry = {
+        id: randomUUID(),
+        sessionId: project.sessionId,
+        sessionTitle: context.sessionTitle,
+        turn: 0,
+        manual: true,
+        cwd: project.cwd,
+        repository: project.repository,
+        branch: project.branch,
+        branchBase: project.branchBase || '',
+        files: changes.files.slice(0, 200),
+        fileCount: changes.files.length,
+        stat: changes.stat,
+        message,
+        updateReadme: project.config.updateReadme === true,
+        ai,
+        turnContext: context,
+        createdAt: Date.now(),
+      }
+      if (state.global.requireConfirmation) {
+        pending.set(entry.id, entry)
+        return ok({ mode: 'proposed', status: 'proposed', pendingId: entry.id })
+      }
+      const result = await commitAndPush(entry, message)
+      recordResult(result)
+      return ok({ mode: 'commit', status: result.status, result })
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/manual-commit failed:`, error)
+      return fail('GIT_MANUAL_COMMIT_FAILED', error?.message || String(error))
+    }
+  }
+
   route('/state', handleState)
   route('/session-state', handleSessionState)
   route('/config', handleConfig)
@@ -1809,6 +2070,8 @@ export function apply(ctx) {
   route('/git/rollback', handleGitRollback)
   route('/git/merge', handleGitMerge)
   route('/git/rebase', handleGitRebase)
+  route('/git/sync', handleGitSync)
+  route('/git/manual-commit', handleGitManualCommit)
 
   /* ---------------------------------------------------------------- */
   /* turn trigger                                                     */
@@ -1950,7 +2213,11 @@ export function apply(ctx) {
     const provider = ai.provider
     const model = ai.model
     const chinese = isCjkText(context.userRequest || context.assistantSummary)
-    const language = chinese ? 'Chinese (简体中文)' : 'English'
+    const language = context.language === 'zh'
+      ? 'Chinese (简体中文)'
+      : context.language === 'en'
+        ? 'English'
+        : chinese ? 'Chinese (简体中文)' : 'English'
     const system = [
       'You write git commit messages for an AI coding agent.',
       'Return ONLY the commit message — no explanation, no code fence, no quotes.',
@@ -1967,7 +2234,9 @@ export function apply(ctx) {
         : '',
     ].filter(Boolean).join('\n\n')
     const prompt = [
-      `This message belongs to one completed coding turn (#${context.turn}).`,
+      context.manual
+        ? 'This is a manual retry commit requested from Git settings. Describe the current uncommitted changes carefully.'
+        : `This message belongs to one completed coding turn (#${context.turn}).`,
       context.userRequest ? `User request:\n${context.userRequest}` : '',
       context.assistantSummary ? `Agent's own summary of the turn:\n${context.assistantSummary}` : '',
       `Changed files (git status):\n${context.files.slice(0, 120).map((file) => `- ${file}`).join('\n')}`,
@@ -2053,8 +2322,13 @@ export function apply(ctx) {
       profile = null
     }
     const readmeFormat = /\.rst$/i.test(readme.name) ? 'reStructuredText' : 'Markdown'
-    const languageSample = readme.existed ? readme.content : [context.userRequest || '', message].join('\n')
-    const language = isCjkText(languageSample) ? 'Chinese (简体中文)' : 'English'
+    const language = readme.existed
+      ? (isCjkText(readme.content) ? 'Chinese (简体中文)' : 'English')
+      : context.language === 'zh'
+        ? 'Chinese (简体中文)'
+        : context.language === 'en'
+          ? 'English'
+          : (isCjkText([context.userRequest || '', message].join('\n')) ? 'Chinese (简体中文)' : 'English')
     const system = [
       'You maintain the README of a software project.',
       `Update the ${readmeFormat} README after a completed coding turn.`,
@@ -2078,7 +2352,9 @@ export function apply(ctx) {
         : '',
     ].filter(Boolean).join('\n\n')
     const prompt = [
-      `This README update belongs to one completed coding turn (#${context.turn ?? entry.turn ?? '?'}).`,
+      context.manual
+        ? 'This README update belongs to a manual retry commit requested from Git settings.'
+        : `This README update belongs to one completed coding turn (#${context.turn ?? entry.turn ?? '?'}).`,
       context.userRequest ? `User request:\n${truncate(context.userRequest, 2000)}` : '',
       context.assistantSummary ? `Agent's summary of the turn:\n${truncate(context.assistantSummary, 2000)}` : '',
       `Commit message:\n${message}`,
@@ -2178,7 +2454,7 @@ export function apply(ctx) {
     await runGit(['add', '-A', '--', '.'], cwd)
     const status = await runGit(['status', '--porcelain=v1', '-uall', '--', '.'], cwd)
     if (status.stdout.trim() === '') {
-      return { status: 'no-changes', sessionId: entry.sessionId, repository: config.repository, branch: config.branch, ...readmeResult }
+      return { status: 'no-changes', sessionId: entry.sessionId, repository: config.repository, branch: config.branch, manual: entry.manual === true, ...readmeResult }
     }
     const authorArgs = commitAuthorArgs()
     const commitArgs = [
@@ -2197,6 +2473,7 @@ export function apply(ctx) {
         repository: config.repository,
         branch: config.branch,
         error: error?.message || String(error),
+        manual: entry.manual === true,
         ...readmeResult,
       }
     }
@@ -2209,6 +2486,7 @@ export function apply(ctx) {
       commit: hash,
       subject: split.subject,
       files: entry.fileCount,
+      manual: entry.manual === true,
       ...readmeResult,
     }
     let rejected = false
@@ -2273,7 +2551,15 @@ export function apply(ctx) {
     }
     if (typeof cwd !== 'string' || cwd === '') return null
     const config = await resolveSessionConfig(sessionId)
-    return { cwd, repository: config.repository, branch: config.branch, branchBase: config.branchBase || '', config }
+    return {
+      sessionId,
+      cwd,
+      repository: config.repository,
+      branch: config.branch,
+      branchBase: config.branchBase || '',
+      config,
+      session: live ?? null,
+    }
   }
 
   async function projectForWorkspace(workspaceId) {
@@ -2344,7 +2630,7 @@ export function apply(ctx) {
       dir = process.cwd()
     }
     try {
-      const { stdout } = await runGit(['ls-remote', '--symref', repository], dir, env)
+      const { stdout } = await runGit(['ls-remote', '--symref', repository], dir, env, REMOTE_CHECK_TIMEOUT_MS)
       const heads = new Map()
       let defaultBranch = ''
       for (const raw of stdout.split('\n')) {
@@ -2421,7 +2707,7 @@ export function apply(ctx) {
 
   async function readRemoteBranches(repository, cwd) {
     if (repository === '') {
-      return { names: [], defaultBranch: '', warning: null, updated: false, remoteChecked: false }
+      return { names: [], heads: new Map(), defaultBranch: '', warning: null, updated: false, remoteChecked: false }
     }
     let repo = false
     if (typeof cwd === 'string' && cwd !== '') {
@@ -2435,6 +2721,7 @@ export function apply(ctx) {
     if (!repo) {
       return {
         names: snapshot.heads === null ? [] : [...snapshot.heads.keys()].sort(),
+        heads: snapshot.heads,
         defaultBranch: snapshot.defaultBranch,
         warning: snapshot.warning,
         updated: false,
@@ -2461,6 +2748,7 @@ export function apply(ctx) {
     }
     return {
       names: [...names].sort(),
+      heads: snapshot.heads,
       defaultBranch: snapshot.defaultBranch || state.global.defaultBranch || '',
       warning: snapshot.warning || syncWarning,
       updated,

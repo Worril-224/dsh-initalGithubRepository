@@ -1312,6 +1312,20 @@ export function apply(ctx) {
           // The created repo is already enough; identity can be filled in later.
         }
       }
+      // When the caller names the session or workspace, make the local folder a
+      // real git repository right away. The creation flow is also used for a
+      // proactively created repository, not just for one detected as missing.
+      let repositoryInitialized = false
+      let initWarning = null
+      try {
+        const project = await projectFromBody(body)
+        if (project !== null && typeof project.cwd === 'string' && project.cwd !== '') {
+          const projectBranch = project.branch || state.global.defaultBranch || 'main'
+          repositoryInitialized = await ensureRepoRoot(project.cwd, projectBranch)
+        }
+      } catch (error) {
+        initWarning = error?.message || String(error)
+      }
       return ok({
         repo: {
           htmlUrl: data.html_url,
@@ -1321,6 +1335,8 @@ export function apply(ctx) {
           private: data.private === true,
           defaultBranch: data.default_branch || '',
         },
+        repositoryInitialized,
+        initWarning,
       })
     } catch (error) {
       console.error(`[${PLUGIN}] GitHub create-repo failed:`, error)
@@ -1974,6 +1990,31 @@ export function apply(ctx) {
     }
   }
 
+  async function handleGitRepoStatus(request) {
+    try {
+      await stateReady
+      const body = await bodyOf(request)
+      const project = await projectFromBody(body)
+      if (project === null) return fail('PROJECT_REQUIRED', 'sessionId or workspaceId is required')
+      let repo = false
+      try {
+        repo = await isRepoRoot(project.cwd)
+      } catch {
+        repo = false
+      }
+      return ok({
+        repo,
+        repository: project.repository,
+        branch: project.branch,
+        branchBase: project.branchBase || '',
+        cwd: project.cwd,
+      })
+    } catch (error) {
+      console.error(`[${PLUGIN}] git/repo-status failed:`, error)
+      return fail('GIT_REPO_STATUS_FAILED', error?.message || String(error))
+    }
+  }
+
   async function handleGitSync(request) {
     try {
       await stateReady
@@ -2065,6 +2106,7 @@ export function apply(ctx) {
   route('/ai/models', handleAiModels)
   route('/ai/describe', handleDescribeProject)
   route('/pending', handlePending)
+  route('/git/repo-status', handleGitRepoStatus)
   route('/git/branches', handleGitBranches)
   route('/git/graph', handleGitGraph)
   route('/git/rollback', handleGitRollback)
@@ -2760,9 +2802,11 @@ export function apply(ctx) {
     const local = new Set()
     let current = ''
     let localWarning = null
+    let repo = false
     if (typeof cwd === 'string' && cwd !== '') {
       try {
-        if (await isRepoRoot(cwd)) {
+        repo = await isRepoRoot(cwd)
+        if (repo) {
           const names = await runGit(['for-each-ref', '--format=%(refname:short)', 'refs/heads'], cwd)
           for (const line of names.stdout.split('\n')) {
             const name = line.trim()
@@ -2798,6 +2842,7 @@ export function apply(ctx) {
       warning: remote.warning || localWarning,
       updated: remote.updated === true,
       remoteChecked: remote.remoteChecked === true,
+      repo,
     }
   }
 

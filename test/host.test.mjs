@@ -536,6 +536,51 @@ await test('creating the missing repository sends GitHub create fields and becom
   assert.equal(saved.config.repository, 'https://github.com/tester/missing-repo')
 })
 
+await test('a workspace without a git repository can create one proactively', async () => {
+  const dir = path.join(root, 'proactive-workspace')
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(path.join(dir, 'main.js'), 'export const ok = true\n', 'utf8')
+  workspaces.push({ id: 'ws-proactive', title: 'Proactive workspace', path: dir, sessionIds: [] })
+  makeSession('session-proactive', Date.now() + 60000, [], dir, 3)
+
+  const statusBefore = await call('/git/repo-status', { workspaceId: 'ws-proactive' })
+  assert.equal(statusBefore.ok, true)
+  assert.equal(statusBefore.repo, false)
+  const before = await call('/git/branches', { workspaceId: 'ws-proactive' })
+  assert.equal(before.ok, true)
+  assert.equal(before.repo, false)
+
+  const created = await call('/github/create-repo', {
+    workspaceId: 'ws-proactive',
+    owner: 'tester',
+    name: 'proactive-created',
+    private: true,
+  })
+  assert.equal(created.ok, true)
+  assert.equal(created.repositoryInitialized, true)
+  const top = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: dir })
+  assert.equal(await fs.realpath(top.stdout.trim()), await fs.realpath(dir))
+
+  const statusAfter = await call('/git/repo-status', { workspaceId: 'ws-proactive' })
+  assert.equal(statusAfter.ok, true)
+  assert.equal(statusAfter.repo, true)
+  const after = await call('/git/branches', { workspaceId: 'ws-proactive' })
+  assert.equal(after.repo, true)
+
+  const saved = await call('/workspace', {
+    workspaceId: 'ws-proactive',
+    enabled: true,
+    repository: 'https://github.com/tester/proactive-created.git',
+    branch: 'main',
+  })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.config.repository, 'https://github.com/tester/proactive-created.git')
+
+  const sync = await call('/git/sync', { sessionId: 'session-proactive' })
+  assert.equal(sync.ok, true)
+  assert.equal(sync.repo, true)
+})
+
 await test('a missing session repository asks before saving unless skipped', async () => {
   const rejected = await call('/session', {
     sessionId: 'session-missing',

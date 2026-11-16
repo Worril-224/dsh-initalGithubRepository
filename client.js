@@ -289,6 +289,15 @@ window.__ModuleLoader__.load({
       'repo.created': '已创建 {repo}',
       'repo.createFailed': '创建仓库失败',
       'repo.tokenRequired': '创建仓库需要先在 Git 设置中保存 GitHub Token。',
+      'repo.createNew': '创建新仓库…',
+      'repo.localMissing': '当前工作区还不是 Git 仓库',
+      'repo.localMissingHint': '可以立即创建一个新的 GitHub 仓库；创建后会初始化本地 Git 仓库，并把仓库地址写入当前配置。',
+      'repo.localReady': '本地 Git 仓库已就绪',
+      'repo.localReadyHint': '如需更换或新建远程仓库，可以创建一个新的 GitHub 仓库并覆盖当前配置。',
+      'repo.localNoRemoteHint': '本地仓库已存在，但还没有配置远程仓库。可以创建一个新的 GitHub 仓库并写入配置。',
+      'repo.localUnknown': '正在检测本地 Git 仓库…',
+      'repo.localUnknownHint': '也可以直接创建一个新的 GitHub 仓库并写入当前配置。',
+      'repo.proactiveNotice': '将创建一个新的 GitHub 仓库，并把仓库地址写入当前配置。',
       'common.cancel': '取消',
       'common.close': '关闭',
       'common.loading': '加载中…',
@@ -544,6 +553,15 @@ window.__ModuleLoader__.load({
       'repo.created': 'Created {repo}',
       'repo.createFailed': 'Could not create the repository',
       'repo.tokenRequired': 'Creating a repository needs a GitHub token saved in Git settings.',
+      'repo.createNew': 'Create repository…',
+      'repo.localMissing': 'This workspace is not a Git repository yet',
+      'repo.localMissingHint': 'Create a new GitHub repository now; the local Git repository is initialized and the repository is written into the current configuration.',
+      'repo.localReady': 'The local Git repository is ready',
+      'repo.localReadyHint': 'To switch or create a new remote repository, create a new GitHub repository and replace the current configuration.',
+      'repo.localNoRemoteHint': 'The local repository exists but no remote repository is configured. Create a new GitHub repository and write it into the configuration.',
+      'repo.localUnknown': 'Checking the local Git repository…',
+      'repo.localUnknownHint': 'You can still create a new GitHub repository and write it into the current configuration.',
+      'repo.proactiveNotice': 'Create a new GitHub repository and write it into the current configuration.',
       'common.cancel': 'Cancel',
       'common.close': 'Close',
       'common.loading': 'Loading…',
@@ -593,6 +611,11 @@ window.__ModuleLoader__.load({
 .dsh-git-switchrow{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2);margin-bottom:14px}
 .dsh-git-switchrow .dsh-git-switchtext{flex:1;min-width:0}
 .dsh-git-switchrow .dsh-git-switchtitle{font-size:12.5px;font-weight:600}
+.dsh-git-repocard{display:flex;align-items:center;gap:12px;padding:10px 12px;margin:0 0 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-git-repocard[data-state="missing"]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 7%,var(--dsw-alias-bg-layer-2))}
+.dsh-git-repocard .dsh-git-repotext{flex:1;min-width:0}
+.dsh-git-repocard .dsh-git-repotitle{font-size:12.5px;font-weight:600}
+.dsh-git-repocard .dsh-git-hint{margin-top:2px}
 .dsh-git-switch{position:relative;flex:none;width:36px;height:20px;margin-top:1px;padding:0;border:none;border-radius:999px;background:var(--dsw-alias-state-idle-primary,rgba(127,127,127,.35));cursor:pointer;transition:background-color .15s ease}
 .dsh-git-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary)}
 .dsh-git-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
@@ -895,6 +918,10 @@ window.__ModuleLoader__.load({
         return apiCall('ai/describe', payload, 60000)
       }
 
+      function gitRepoStatus(payload) {
+        return apiCall('git/repo-status', payload, 15000)
+      }
+
       function loadBranches(payload) {
         return apiCall('git/branches', payload, 60000)
       }
@@ -979,7 +1006,7 @@ window.__ModuleLoader__.load({
         return snapshot
       }
 
-      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, loadBranches, loadGitGraph, rollbackVersion, mergeBranch, rebaseBranch, gitSync, manualCommit, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
+      return { get, subscribe, start, stop, refresh, ensureSession, saveSession, saveConfig, saveWorkspace, createGitHubRepo, loadAiModels, describeProject, gitRepoStatus, loadBranches, loadGitGraph, rollbackVersion, mergeBranch, rebaseBranch, gitSync, manualCommit, localeId, decide, hidePending, showPending, openSessionDialog, closeSessionDialog, openWorkspaceDialog, closeWorkspaceDialog }
     }
 
     function useStore(store) {
@@ -1153,6 +1180,76 @@ window.__ModuleLoader__.load({
       if (source === 'workspace') return t('session.inherited')
       if (source === 'session') return t('session.config')
       return t('session.notConfigured')
+    }
+
+    function githubOwnerHint(global) {
+      if (!global) return ''
+      if (typeof global.githubLogin === 'string' && global.githubLogin !== '') return global.githubLogin
+      const match = String(global.githubPrefix || '').match(/^https?:\/\/github\.com\/([^/]+)\/?$/i)
+      return match ? match[1] : ''
+    }
+
+    function parseRepoInput(value) {
+      const text = String(value || '').trim()
+      if (text === '') return null
+      let match = text.match(/^https?:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i)
+      if (match !== null) return { owner: match[1], name: match[2] }
+      match = text.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/)
+      if (match !== null) return { owner: match[1], name: match[2] }
+      return null
+    }
+
+    function suggestRepoName(title, folder) {
+      const base = String(folder || '').split(/[\\/]/).filter(Boolean).pop()
+      for (const candidate of [title, base]) {
+        const slug = String(candidate || '')
+          .replace(/[^A-Za-z0-9._-]+/g, '-')
+          .replace(/^[-.]+|[-.]+$/g, '')
+          .slice(0, 100)
+        if (slug !== '' && slug !== '.' && slug !== '..') return slug
+      }
+      return 'new-repository'
+    }
+
+    function repositorySeed({ repository, global, title, folder }) {
+      const text = String(repository || '').trim()
+      let owner = githubOwnerHint(global)
+      let name = ''
+      if (text !== '') {
+        const parsed = parseRepoInput(text)
+        if (parsed !== null) {
+          owner = parsed.owner || owner
+          name = parsed.name
+        } else if (!/[\\/]/.test(text)) {
+          name = text.replace(/\.git$/i, '')
+        }
+      }
+      if (name === '') name = suggestRepoName(title, folder)
+      return { owner, name }
+    }
+
+    /* A compact "local repository" card shown in both session and workspace
+       settings. It is the proactive entry point for creating a GitHub
+       repository when the folder is not a git repository yet. */
+    function RepositoryCreateCard({ t, localRepo, repository, onCreate, disabled }) {
+      const state = localRepo === true ? 'ready' : localRepo === false ? 'missing' : 'unknown'
+      const hasRemote = String(repository || '').trim() !== ''
+      return h('div', { className: 'dsh-git-repocard', 'data-state': state },
+        h('div', { className: 'dsh-git-repotext' },
+          h('div', { className: 'dsh-git-repotitle' }, t(state === 'ready' ? 'repo.localReady' : state === 'missing' ? 'repo.localMissing' : 'repo.localUnknown')),
+          h('div', { className: 'dsh-git-hint' }, t(state === 'ready'
+            ? (hasRemote ? 'repo.localReadyHint' : 'repo.localNoRemoteHint')
+            : state === 'missing'
+              ? 'repo.localMissingHint'
+              : 'repo.localUnknownHint')),
+        ),
+        h('button', {
+          type: 'button',
+          className: `dsh-git-btn${state === 'missing' ? ' dsh-git-btn-primary' : ' dsh-git-btn-subtle'}`,
+          disabled: disabled === true,
+          onClick: onCreate,
+        }, t('repo.createNew')),
+      )
     }
 
     /* ------------------------------------------------------------ */
@@ -1466,7 +1563,8 @@ window.__ModuleLoader__.load({
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
-      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null, updated: false, remoteChecked: false })
+      const [branchState, setBranchState] = useState({ loading: true, loaded: false, branches: [], current: '', defaultBranch: '', warning: null, error: null, repo: false, updated: false, remoteChecked: false })
+      const [repoState, setRepoState] = useState({ loading: true, loaded: false, error: null, repo: null })
       const [syncState, setSyncState] = useState({ loading: true, loaded: false, error: null })
       const [manualBusy, setManualBusy] = useState(false)
       const [manualNotice, setManualNotice] = useState(null)
@@ -1510,11 +1608,14 @@ window.__ModuleLoader__.load({
             error: null,
             updated: data.updated === true,
             remoteChecked: data.remoteChecked === true,
+            loaded: true,
+            repo: data.repo === true,
           })
         } catch (loadError) {
           setBranchState((current) => ({
             ...current,
             loading: false,
+            loaded: true,
             error: loadError && loadError.message ? loadError.message : String(loadError),
           }))
         }
@@ -1522,6 +1623,25 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         void loadBranches()
+      }, [sessionId])
+
+      const loadRepoStatus = async () => {
+        setRepoState((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const data = await store.gitRepoStatus({ sessionId })
+          setRepoState({ loading: false, loaded: true, error: null, repo: data.repo === true })
+        } catch (loadError) {
+          setRepoState({
+            loading: false,
+            loaded: true,
+            repo: null,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          })
+        }
+      }
+
+      useEffect(() => {
+        void loadRepoStatus()
       }, [sessionId])
 
       const loadSync = async () => {
@@ -1605,6 +1725,24 @@ window.__ModuleLoader__.load({
         || branch !== initial.current.branch
         || branchBase !== initial.current.branchBase
       )
+      const localRepo = repoState.error === null && repoState.loaded === true ? repoState.repo === true : null
+      const openCreateRepo = () => {
+        const seed = repositorySeed({
+          repository,
+          global: snap.state && snap.state.global,
+          title: displayTitle,
+          folder: meta && meta.workspace ? meta.workspace.path : '',
+        })
+        setMissingRepo({
+          proactive: true,
+          owner: seed.owner,
+          name: seed.name,
+          repository: repository.trim(),
+          htmlUrl: repository.trim(),
+          tokenConfigured: Boolean(snap.state && snap.state.tokenConfigured),
+          canCreate: true,
+        })
+      }
 
       const persist = async (values, skipRepoCheck) => {
         setError(null)
@@ -1741,6 +1879,13 @@ window.__ModuleLoader__.load({
                 spellCheck: false,
                 onChange: (event) => setRepository(event.target.value),
               })),
+              h(RepositoryCreateCard, {
+                t,
+                localRepo,
+                repository,
+                onCreate: openCreateRepo,
+                disabled: saving,
+              }),
               h(BranchSelect, {
                 label: t('session.branch'),
                 value: branch,
@@ -1861,11 +2006,13 @@ window.__ModuleLoader__.load({
           store,
           t,
           onCancel: () => setMissingRepo(null),
-          onSaveAnyway: () => {
-            const target = missingRepo
-            setMissingRepo(null)
-            void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
-          },
+          onSaveAnyway: missingRepo.proactive === true
+            ? undefined
+            : () => {
+              const target = missingRepo
+              setMissingRepo(null)
+              void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+            },
           onCreated: (repo) => {
             const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
             setMissingRepo(null)
@@ -2258,6 +2405,8 @@ window.__ModuleLoader__.load({
             hasProjects,
             hasWiki,
             homepage: homepage.trim(),
+            sessionId: project && project.sessionId ? project.sessionId : undefined,
+            workspaceId: project && project.workspaceId ? project.workspaceId : undefined,
           })
           onCreated(data.repo)
         } catch (submitError) {
@@ -2277,7 +2426,12 @@ window.__ModuleLoader__.load({
         closeLabel: t('common.close'),
         wide: true,
         children: h(React.Fragment, null,
-          h('div', { className: 'dsh-git-warn' }, t('repo.missingNotice', { repo: missing.htmlUrl || missing.repository })),
+          missing.proactive === true
+            ? h('div', { className: 'dsh-git-hint' }, t('repo.proactiveNotice'))
+            : h('div', { className: 'dsh-git-warn' }, t('repo.missingNotice', { repo: missing.htmlUrl || missing.repository })),
+          missing.tokenConfigured === false
+            ? h('div', { className: 'dsh-git-warn', style: { marginTop: 6 } }, t('repo.tokenRequired'))
+            : null,
           h('div', { style: { height: 12 } }),
           h('div', { className: 'dsh-git-grid2' },
             h(Field, { label: t('repo.owner'), hint: t('repo.ownerHint') }, h('input', {
@@ -2405,7 +2559,8 @@ window.__ModuleLoader__.load({
       const [repository, setRepository] = useState(config && config.repository ? config.repository : '')
       const [branch, setBranch] = useState(config && config.branch ? config.branch : defaultBranch)
       const [branchBase, setBranchBase] = useState(config && config.branchBase ? config.branchBase : '')
-      const [branchState, setBranchState] = useState({ loading: true, branches: [], current: '', defaultBranch: '', warning: null, error: null, updated: false, remoteChecked: false })
+      const [branchState, setBranchState] = useState({ loading: true, loaded: false, branches: [], current: '', defaultBranch: '', warning: null, error: null, repo: false, updated: false, remoteChecked: false })
+      const [repoState, setRepoState] = useState({ loading: true, loaded: false, error: null, repo: null })
       const [mergeSource, setMergeSource] = useState('')
       const [rebaseOnto, setRebaseOnto] = useState('')
       const [pushAfter, setPushAfter] = useState(true)
@@ -2449,11 +2604,14 @@ window.__ModuleLoader__.load({
             error: null,
             updated: data.updated === true,
             remoteChecked: data.remoteChecked === true,
+            loaded: true,
+            repo: data.repo === true,
           })
         } catch (loadError) {
           setBranchState((current) => ({
             ...current,
             loading: false,
+            loaded: true,
             error: loadError && loadError.message ? loadError.message : String(loadError),
           }))
         }
@@ -2461,6 +2619,25 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         void loadBranches()
+      }, [workspaceId])
+
+      const loadRepoStatus = async () => {
+        setRepoState((current) => ({ ...current, loading: true, error: null }))
+        try {
+          const data = await store.gitRepoStatus({ workspaceId })
+          setRepoState({ loading: false, loaded: true, error: null, repo: data.repo === true })
+        } catch (loadError) {
+          setRepoState({
+            loading: false,
+            loaded: true,
+            repo: null,
+            error: loadError && loadError.message ? loadError.message : String(loadError),
+          })
+        }
+      }
+
+      useEffect(() => {
+        void loadRepoStatus()
       }, [workspaceId])
 
       useEffect(() => {
@@ -2522,6 +2699,24 @@ window.__ModuleLoader__.load({
         || branch !== initial.current.branch
         || branchBase !== initial.current.branchBase
       )
+      const localRepo = repoState.error === null && repoState.loaded === true ? repoState.repo === true : null
+      const openCreateRepo = () => {
+        const seed = repositorySeed({
+          repository,
+          global: snap.state && snap.state.global,
+          title: displayTitle || (workspace ? workspace.title : ''),
+          folder: workspace ? workspace.path : '',
+        })
+        setMissingRepo({
+          proactive: true,
+          owner: seed.owner,
+          name: seed.name,
+          repository: repository.trim(),
+          htmlUrl: repository.trim(),
+          tokenConfigured: Boolean(snap.state && snap.state.tokenConfigured),
+          canCreate: true,
+        })
+      }
 
       const persist = async (values, skipRepoCheck) => {
         setSaving(true)
@@ -2629,6 +2824,13 @@ window.__ModuleLoader__.load({
                   spellCheck: false,
                   onChange: (event) => setRepository(event.target.value),
                 })),
+                h(RepositoryCreateCard, {
+                  t,
+                  localRepo,
+                  repository,
+                  onCreate: openCreateRepo,
+                  disabled: saving,
+                }),
                 h(BranchSelect, {
                   label: t('workspace.branch'),
                   value: branch,
@@ -2723,11 +2925,13 @@ window.__ModuleLoader__.load({
             store,
             t,
             onCancel: () => setMissingRepo(null),
-            onSaveAnyway: () => {
-              const target = missingRepo
-              setMissingRepo(null)
-              void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
-            },
+            onSaveAnyway: missingRepo.proactive === true
+              ? undefined
+              : () => {
+                const target = missingRepo
+                setMissingRepo(null)
+                void persist({ enabled, updateReadme, branchBase, repository: target.repository, branch: branch.trim() || defaultBranch }, true)
+              },
             onCreated: (repo) => {
               const url = repo.cloneUrl || (repo.htmlUrl ? `${repo.htmlUrl}.git` : '')
               setMissingRepo(null)

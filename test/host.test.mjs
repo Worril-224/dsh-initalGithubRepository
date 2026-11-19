@@ -1080,6 +1080,82 @@ await test('manual commit proposes and commits uncommitted changes', async () =>
   assert.equal(direct.result.status, 'pushed')
 })
 
+/* ------------------------------------------------------------------ */
+/* unchanged workspace handling                                       */
+/* ------------------------------------------------------------------ */
+
+const nochangeDir = path.join(root, 'nochange-workspace')
+const nochangeRemote = path.join(root, 'nochange-remote.git')
+await fs.mkdir(nochangeDir, { recursive: true })
+await fs.writeFile(path.join(nochangeDir, 'base.txt'), 'base\n', 'utf8')
+await execFileAsync('git', ['init', '-b', 'main'], { cwd: nochangeDir })
+await execFileAsync('git', ['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'add', '-A'], { cwd: nochangeDir })
+await execFileAsync('git', ['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', 'Initial commit'], { cwd: nochangeDir })
+await execFileAsync('git', ['init', '--bare', nochangeRemote])
+await execFileAsync('git', ['remote', 'add', 'origin', nochangeRemote], { cwd: nochangeDir })
+await execFileAsync('git', ['push', 'origin', 'main'], { cwd: nochangeDir })
+workspaces.push({ id: 'ws-nochange', title: 'No-change workspace', path: nochangeDir, sessionIds: [] })
+const nochangeSession = makeSession('session-nochange', Date.now() + 50000, [], nochangeDir, workspaces.length - 1)
+await call('/session', { sessionId: nochangeSession.id, enabled: true, repository: nochangeRemote, branch: 'main' })
+
+await test('a turn with no workspace changes does not propose a commit', async () => {
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  const state = await call('/state', {})
+  assert.equal(state.pending.some((item) => item.sessionId === nochangeSession.id), false)
+  assert.equal(state.lastResults.some((item) => item.sessionId === nochangeSession.id), false)
+})
+
+await test('unchanged leftover changes are not proposed again', async () => {
+  await call('/config', { global: { requireConfirmation: true } })
+  await fs.writeFile(path.join(nochangeDir, 'leftover.txt'), 'leftover\n', 'utf8')
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } })
+  const proposal = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.pending.find((item) => item.sessionId === nochangeSession.id) || null
+  })
+  assert.ok(proposal)
+  await call('/pending', { id: proposal.id, action: 'cancel' })
+  const before = await call('/state', {})
+  const resultsBefore = before.lastResults.filter((item) => item.sessionId === nochangeSession.id).length
+
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } })
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  const after = await call('/state', {})
+  assert.equal(after.pending.some((item) => item.sessionId === nochangeSession.id), false)
+  assert.equal(after.lastResults.filter((item) => item.sessionId === nochangeSession.id).length, resultsBefore)
+})
+
+await test('a new change after a skipped turn is proposed again', async () => {
+  await fs.writeFile(path.join(nochangeDir, 'leftover.txt'), 'leftover changed\n', 'utf8')
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 4, reason: { kind: 'completed' } } })
+  const proposal = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.pending.find((item) => item.sessionId === nochangeSession.id) || null
+  })
+  assert.ok(proposal)
+  assert.ok(proposal.files.includes('leftover.txt'))
+  await call('/pending', { id: proposal.id, action: 'cancel' })
+})
+
+await test('a direct commit updates the snapshot and the next no-op turn is skipped', async () => {
+  await call('/config', { global: { requireConfirmation: false } })
+  await fs.writeFile(path.join(nochangeDir, 'direct.txt'), 'direct\n', 'utf8')
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 5, reason: { kind: 'completed' } } })
+  const committed = await waitFor(async () => {
+    const state = await call('/state', {})
+    return state.lastResults.find((item) => item.sessionId === nochangeSession.id && item.status === 'pushed') || null
+  })
+  assert.ok(committed)
+  const count = (await call('/state', {})).lastResults.filter((item) => item.sessionId === nochangeSession.id).length
+  emit('session/event', nochangeSession, { type: 'turn/end', data: { turn: 6, reason: { kind: 'completed' } } })
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  const after = await call('/state', {})
+  assert.equal(after.pending.some((item) => item.sessionId === nochangeSession.id), false)
+  assert.equal(after.lastResults.filter((item) => item.sessionId === nochangeSession.id).length, count)
+  await call('/config', { global: { requireConfirmation: true } })
+})
+
 await test('README fence stripping keeps real content', () => {
   assert.equal(__internals.stripMarkdownFence('```markdown\n# Hi\n```'), '# Hi')
   assert.equal(__internals.stripMarkdownFence('NO_CHANGE'), 'NO_CHANGE')

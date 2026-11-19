@@ -14,7 +14,7 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -30,6 +30,7 @@ const TOKEN_KEY = 'dsh-git-auto-commit/github-token'
 const REMOTE_NAME = 'dsh-auto-commit'
 const MAX_PENDING_MS = 30 * 60 * 1000
 const MAX_RESULTS = 40
+const MAX_SESSION_SNAPSHOTS = 500
 const MAX_DIFF_CHARS = 14000
 const GIT_TIMEOUT_MS = 180000
 const LLM_TIMEOUT_MS = 30000
@@ -55,6 +56,7 @@ const DEFAULT_STATE = {
   },
   workspaces: {},
   sessions: {},
+  sessionSnapshots: {},
   lastResults: [],
 }
 
@@ -116,6 +118,18 @@ function normalizeState(raw) {
     for (const [id, config] of Object.entries(sessions)) {
       const normalized = normalizeRepoConfig(config)
       if (normalized !== null) next.sessions[id] = normalized
+    }
+  }
+  const snapshots = asRecord(value.sessionSnapshots)
+  if (snapshots !== null) {
+    for (const [id, snapshot] of Object.entries(snapshots)) {
+      const item = asRecord(snapshot)
+      if (item === null) continue
+      if (typeof item.fingerprint !== 'string' || item.fingerprint === '') continue
+      next.sessionSnapshots[id] = {
+        fingerprint: item.fingerprint,
+        updatedAt: Number.isFinite(item.updatedAt) ? item.updatedAt : 0,
+      }
     }
   }
   if (Array.isArray(value.lastResults)) {
@@ -692,6 +706,67 @@ async function inspectChanges(cwd, branch) {
   return { files, stat, diff, untrackedSamples }
 }
 
+function parseStatusEntries(stdout) {
+  const tokens = String(stdout || '').split('\0')
+  const entries = []
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]
+    if (token.length < 4) continue
+    const code = token.slice(0, 2)
+    entries.push({ code, path: token.slice(3) })
+    // `git status -z` emits the original path as a second NUL-separated token
+    // for renames and copies.
+    if (/[RC]/.test(code)) i += 1
+  }
+  return entries
+}
+
+async function workspaceFingerprint(cwd, branch) {
+  try {
+    await ensureRepoRoot(cwd, branch)
+  } catch {
+    return null
+  }
+  let head = ''
+  try {
+    head = (await runGit(['rev-parse', 'HEAD'], cwd)).stdout.trim()
+  } catch {
+    head = ''
+  }
+  let status = ''
+  try {
+    status = (await runGit(['status', '--porcelain=v1', '-z', '-uall', '--', '.'], cwd)).stdout
+  } catch {
+    return null
+  }
+  // A clean tree is fully described by HEAD; skip the per-file scans when
+  // nothing is pending.
+  if (status === '') {
+    return createHash('sha256').update(`clean\0${head}`).digest('hex')
+  }
+  const parts = [`head\0${head}`]
+  for (const entry of parseStatusEntries(status)) {
+    const full = path.join(cwd, entry.path)
+    let info
+    try {
+      info = await fs.stat(full)
+    } catch {
+      parts.push(`${entry.code}\0${entry.path}\0missing`)
+      continue
+    }
+    parts.push(`${entry.code}\0${entry.path}\0${info.size}\0${info.mtimeMs}`)
+    // Hash small files so a same-size, same-mtime edit is still detected.
+    if (info.isFile() && info.size <= 256 * 1024) {
+      try {
+        parts.push(createHash('sha256').update(await fs.readFile(full)).digest('hex'))
+      } catch {
+        // The file disappeared or is unreadable; size/mtime above still help.
+      }
+    }
+  }
+  return createHash('sha256').update(parts.join('\0')).digest('hex')
+}
+
 function normalizeCommitMessage(raw) {
   let text = String(raw || '').replace(/\r\n/g, '\n').trim()
   if (text === '') return ''
@@ -952,6 +1027,19 @@ export function apply(ctx) {
     state.lastResults = [entry, ...state.lastResults].slice(0, MAX_RESULTS)
     void persist()
     return entry
+  }
+
+  async function rememberSessionSnapshot(sessionId, fingerprint) {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (typeof fingerprint !== 'string' || fingerprint === '') return
+    if (state.sessionSnapshots[sessionId]?.fingerprint === fingerprint) return
+    state.sessionSnapshots[sessionId] = { fingerprint, updatedAt: Date.now() }
+    const entries = Object.entries(state.sessionSnapshots)
+    if (entries.length > MAX_SESSION_SNAPSHOTS) {
+      entries.sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0))
+      state.sessionSnapshots = Object.fromEntries(entries.slice(0, MAX_SESSION_SNAPSHOTS))
+    }
+    await persist()
   }
 
   function prunePending() {
@@ -1545,6 +1633,7 @@ export function apply(ctx) {
         }
       }
       pending.delete(entry.id)
+      await rememberSessionSnapshot(entry.sessionId, await workspaceFingerprint(entry.cwd, entry.branch))
       recordResult(result)
       return ok({ status: result.status, result })
     } catch (error) {
@@ -2156,6 +2245,11 @@ export function apply(ctx) {
       recordResult({ status: 'error', sessionId: session.id, error: 'The session has no working directory' })
       return
     }
+    // Skip when the workspace is still exactly as it was after the previous
+    // check. This prevents a turn that changed nothing from re-committing
+    // leftover uncommitted changes or re-opening an unchanged proposal.
+    const fingerprint = await workspaceFingerprint(cwd, config.branch)
+    if (fingerprint !== null && state.sessionSnapshots[session.id]?.fingerprint === fingerprint) return
     let changes
     try {
       changes = await inspectChanges(cwd, config.branch)
@@ -2163,7 +2257,10 @@ export function apply(ctx) {
       recordResult({ status: 'error', sessionId: session.id, repository: config.repository, branch: config.branch, error: error?.message || String(error) })
       return
     }
-    if (changes.files.length === 0) return
+    if (changes.files.length === 0) {
+      await rememberSessionSnapshot(session.id, fingerprint)
+      return
+    }
 
     const context = await collectTurnContext(session, turn, changes)
     const ai = commitAiSelection(session)
@@ -2188,11 +2285,13 @@ export function apply(ctx) {
       createdAt: Date.now(),
     }
 
+    await rememberSessionSnapshot(session.id, fingerprint)
     if (state.global.requireConfirmation) {
       pending.set(id, entry)
       return
     }
     const result = await commitAndPush(entry, message)
+    await rememberSessionSnapshot(session.id, await workspaceFingerprint(cwd, config.branch))
     recordResult(result)
   }
 
